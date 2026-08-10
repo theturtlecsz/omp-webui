@@ -452,6 +452,7 @@ export class Daemon {
       messageCount: m.messageCount,
       archived: m.archived === 1,
       workerState: this.#runtimes.get(m.sessionFile)?.worker?.state ?? "stopped",
+      isStreaming: this.#runtimes.get(m.sessionFile)?.state.isStreaming === true,
     }));
   }
 

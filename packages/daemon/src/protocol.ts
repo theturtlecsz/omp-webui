@@ -81,6 +81,7 @@ export interface SessionSummary {
   messageCount: number;
   archived: boolean;
   workerState: "stopped" | "starting" | "ready" | "crashed";
+  isStreaming?: boolean;
 }
 
 export interface SessionStatePayload {
