@@ -106,3 +106,49 @@ tasks:
     owner: orchestrator
     status: todo
     depends: [T-060]
+
+# Phase 6 — pi-web-ui parity (see PARITY.md)
+- id: T-100
+  title: Sanitized GFM markdown renderer
+  status: pending
+  phase: 6
+- id: T-110
+  title: Long-chat collapsing + bounded seenEvents
+  status: pending
+  phase: 6
+- id: T-120
+  title: Edit-and-re-ask (fork at entry)
+  status: pending
+  phase: 6
+- id: T-130
+  title: Attachments & images (chips, paste, drag-drop, uploads)
+  status: pending
+  phase: 6
+- id: T-140
+  title: File preview + line selection
+  status: pending
+  phase: 6
+- id: T-150
+  title: Terminal pane (opt-in --terminal, isolated node-pty)
+  status: pending
+  phase: 6
+- id: T-160
+  title: Workspace memory + version display polish
+  status: pending
+  phase: 6
+- id: T-170
+  title: systemd user-service installer script
+  status: pending
+  phase: 6
+- id: T-180
+  title: E2E parity specs
+  status: pending
+  phase: 6
+- id: T-190
+  title: Independent security review of Phase 6
+  status: pending
+  phase: 6
+- id: T-200
+  title: Docs + acceptance + push
+  status: pending
+  phase: 6
