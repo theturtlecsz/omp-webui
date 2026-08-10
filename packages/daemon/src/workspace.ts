@@ -2,7 +2,7 @@
  * workspace.ts — workspace-root enforcement for file and git APIs.
  * All paths are canonicalized (symlinks resolved) before containment checks.
  */
-import { realpathSync, statSync, readdirSync, readFileSync } from "node:fs";
+import { realpathSync, statSync, readdirSync, openSync, readSync, closeSync } from "node:fs";
 import { resolve, relative, isAbsolute, join, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -92,8 +92,9 @@ export function readWorkspaceFile(boundary: WorkspaceBoundary, userPath: string,
   const full = boundary.resolveContained(userPath);
   const stat = statSync(full);
   if (!stat.isFile()) throw new Error(`not a file: ${userPath}`);
-  const buf = readFileSync(full);
-  const preview = buf.subarray(0, MAX_FILE_BYTES);
+  // Bounded read: never allocate the whole file. A sparse multi-hundred-MiB
+  // file must cost at most MAX_FILE_BYTES (+1 to detect truncation) of RSS.
+  const preview = readBounded(full, MAX_FILE_BYTES + 1).subarray(0, MAX_FILE_BYTES);
   const text = preview.toString("utf8");
   // A NUL or an invalid UTF-8 round trip makes this unsuitable for a code preview
   // and for automatic prompt inlining.
@@ -115,6 +116,18 @@ export function readWorkspaceFile(boundary: WorkspaceBoundary, userPath: string,
     };
   }
   return { path: boundary.relative(full), content: text, truncated: stat.size > MAX_FILE_BYTES, lineCount: lines.length };
+}
+
+/** Read at most `maxBytes` of a file without ever allocating its full size. */
+function readBounded(path: string, maxBytes: number): Buffer {
+  const fd = openSync(path, "r");
+  try {
+    const buf = Buffer.alloc(maxBytes);
+    const read = readSync(fd, buf, 0, maxBytes, 0);
+    return buf.subarray(0, read);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 export function searchWorkspaceFiles(boundary: WorkspaceBoundary, query: string): string[] {

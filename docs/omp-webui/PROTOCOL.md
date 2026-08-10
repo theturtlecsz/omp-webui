@@ -130,3 +130,17 @@ omp frames → normalized events in `packages/daemon/src/session-runtime.ts` ONL
 - Breaking changes bump the integer; the daemon rejects lower-than-supported majors with
   `connection.error`. omp-side compatibility is pinned to `@oh-my-pi/pi-coding-agent@17.2.12`
   and guarded by contract tests (see ACCEPTANCE.md).
+
+## Resource bounds (Phase 6 review)
+
+- Fully-assembled prompts (message + inlined attachments) are capped at 512 KiB of
+  UTF-8. Larger submissions are rejected with error code `message_too_large` on
+  `prompt.submit`, `prompt.queue`, `prompt.steer`, and `session.reask`. Large files
+  should be attached as path references — the model reads them on demand.
+- Preview and attachment reads are bounded fd reads (at most 512 KiB + 1 byte);
+  the daemon never allocates a workspace file's full size.
+- The WebSocket server enforces `maxPayload` of 32 MiB per frame (a 20 MiB binary
+  upload is ~27 MiB base64). Oversized frames close the socket with code 1009
+  before any decoding occurs.
+- The markdown renderer parses at most 100,000 characters per message; overflow is
+  available on demand as plain text.

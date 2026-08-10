@@ -35,16 +35,28 @@ function CopyablePre({ children }: { children?: ReactNode }) {
   return <pre className="markdown-code"><button type="button" className="markdown-code__copy" onClick={() => void copy()} aria-label="Copy code"><Copy size={14} /> Copy</button>{children}<span className="u-sr-only" role="status" aria-live="polite">{notice}</span></pre>;
 }
 
+/**
+ * Hostile or pathological markdown (tens of thousands of links) can stall the
+ * main thread for seconds during parse/sanitize. Cap parser input and render
+ * the remainder as bounded plain text — availability bound, not a security
+ * boundary (sanitization above is).
+ */
+const MAX_MARKDOWN_CHARS = 100_000;
+
 export function MarkdownMessage({ children }: { children: string }) {
+  const overflow = children.length > MAX_MARKDOWN_CHARS ? children.slice(MAX_MARKDOWN_CHARS) : '';
   return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      // Sanitize untrusted markdown first. Highlighting subsequently adds only
-      // trusted token spans; input code classes remain limited by `schema`.
-      rehypePlugins={[[rehypeSanitize, schema], rehypeHighlight]}
-      components={{ pre: CopyablePre }}
-    >
-      {children}
-    </ReactMarkdown>
+    <>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        // Sanitize untrusted markdown first. Highlighting subsequently adds only
+        // trusted token spans; input code classes remain limited by `schema`.
+        rehypePlugins={[[rehypeSanitize, schema], rehypeHighlight]}
+        components={{ pre: CopyablePre }}
+      >
+        {overflow ? children.slice(0, MAX_MARKDOWN_CHARS) : children}
+      </ReactMarkdown>
+      {overflow && <details className="markdown-overflow"><summary>Message truncated for performance — show the remaining {overflow.length.toLocaleString()} characters as plain text</summary><pre>{overflow}</pre></details>}
+    </>
   );
 }

@@ -15,6 +15,16 @@ import { listSessionFiles, readSessionEntries, sessionDirForCwd } from "./sessio
 import { PROTOCOL_VERSION, type ClientCommand, type Envelope } from "./protocol.js";
 import { TerminalManager } from "./terminal-manager.js";
 
+/** Hard cap on a fully-assembled prompt (message + inlined attachments). */
+const MAX_PROMPT_BYTES = 512 * 1024;
+
+class MessageTooLargeError extends Error {
+  readonly code = "message_too_large";
+  constructor() {
+    super(`prompt exceeds the ${MAX_PROMPT_BYTES / 1024} KiB limit; attach large files as path references instead`);
+  }
+}
+
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const DEFAULT_INLINE_FILE_MAX = 12 * 1024;
 const daemonPackage = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version?: unknown };
@@ -100,7 +110,10 @@ export class Daemon {
 
   async start(): Promise<void> {
     this.#http = createServer((req, res) => this.#onHttp(req, res));
-    this.#wss = new WebSocketServer({ server: this.#http, path: "/ws" });
+    // maxPayload sized for the largest legitimate frame (a 20 MB binary upload
+    // is ~27 MB base64) so oversized uploads get a deterministic close instead
+    // of unbounded buffering.
+    this.#wss = new WebSocketServer({ server: this.#http, path: "/ws", maxPayload: 32 * 1024 * 1024 });
     this.#wss.on("connection", (ws, req) => this.#onConnection(ws, req));
     await new Promise<void>((resolvePromise, reject) => {
       this.#http!.once("error", reject);
@@ -363,6 +376,7 @@ export class Daemon {
         const message = String(p.message ?? "");
         if (!entryId) throw new Error("session.reask requires payload.entryId");
         if (!message.trim()) throw new Error("empty prompt");
+        if (Buffer.byteLength(message, "utf8") > MAX_PROMPT_BYTES) throw new MessageTooLargeError();
 
         const boundary = this.#requireBoundary(source.workspaceId);
         const entries = await this.#readEntriesThrough(source.sessionFile, entryId);
@@ -421,6 +435,7 @@ export class Daemon {
           workspaceId,
         );
         if (!message.trim()) throw new Error("empty prompt");
+        if (Buffer.byteLength(message, "utf8") > MAX_PROMPT_BYTES) throw new MessageTooLargeError();
         const images = this.#promptImages(Array.isArray(p.images) ? p.images as PromptImage[] : []);
         const streamingBehavior = cmd.type === "prompt.steer" ? "steer" : cmd.type === "prompt.queue" ? "followUp" : (p.streamingBehavior as string | undefined);
         void rt.worker!.command({
@@ -916,6 +931,12 @@ export class Daemon {
       const start = Number(attachment.start);
       const end = Number(attachment.end);
       const hasRange = Number.isInteger(start) && Number.isInteger(end) && start > 0 && end >= start;
+      // Whole-file attachments above the inline threshold are path references
+      // only — never read them just to discover they are too large.
+      if (!hasRange && stat.size > this.#inlineFileMax()) {
+        blocks.push(`File attachment: ${displayPath}`);
+        continue;
+      }
       const read = resolved.uploaded
         ? this.#readUploadedText(fullPath, hasRange ? { start, end } : {})
         : readWorkspaceFile(boundary!, fullPath, hasRange ? { start, end } : {});

@@ -98,3 +98,44 @@ Reasoning: presentation compaction must not compromise replay correctness, event
 idempotency, session forks, accessibility, or the ability to expand historic content.
 Consequences: only the rendered older rows become summaries; the latest 15 messages always
 remain fully rendered and no transcript data is discarded.
+
+## ADR-0016: PTY hosting via a Node child-process shim
+Date: 2026-08-10
+Status: accepted
+Context: the opt-in terminal (T-150) needs node-pty, whose prebuilt native binary
+targets Node's ABI (NODE_MODULE_VERSION 115). The daemon runs under Bun (ABI 137),
+so node-pty cannot load in-process. Loading it under Bun fails at first terminal
+creation; shipping the feature as "unavailable" would leave a parity gap.
+Decision: the daemon spawns `src/pty-host.mjs` under a real Node runtime
+(`OMP_PTY_HOST_NODE` or `node` on PATH) and proxies PTY traffic over
+newline-delimited JSON on stdio. The host is lazy (no child process until the first
+terminal), one host serves all terminals, and the daemon remains the sole trust
+boundary (cwd containment, env scrubbing, rate limits, reaping all happen
+daemon-side before the host sees a request).
+Reasoning: keeps the Bun runtime and single-process daemon model intact, adds crash
+isolation for the native module (a pty-host crash cannot take down the daemon), and
+preserves the clean-clone guarantee — node-pty stays an optionalDependency and the
+feature degrades to `terminal_unavailable` when Node or node-pty is absent.
+Consequences: terminal requires a Node runtime on the host machine; documented in
+OPERATIONS.md. The agent integration remains structured RPC — the terminal is a user
+shell only, never a transport for agent traffic.
+
+## ADR-0017: Prompt and renderer resource bounds after Phase 6 review
+Date: 2026-08-10
+Status: accepted
+Context: the Phase 6 independent review (REVIEW_PHASE6.md) found that advertised
+size limits were applied AFTER full allocation (512 KiB preview cap read the whole
+file), that prompts had no byte cap, and that hostile markdown could stall the
+renderer for seconds.
+Decision: (1) all file reads for preview/attachment paths are bounded fd reads of at
+most 512 KiB + 1, and whole-file attachments above the inline threshold are
+path-referenced without being read; (2) fully-assembled prompts (message + inlined
+attachments) are capped at 512 KiB with stable error code `message_too_large`;
+(3) markdown parser input is capped at 100,000 chars with overflow rendered as
+on-demand plain text; (4) the WebSocket server sets an explicit 32 MiB maxPayload so
+oversized uploads close deterministically (1009).
+Reasoning: limits that allocate before they enforce are not limits. Every bound now
+constrains work before resources are committed.
+Consequences: prompts over 512 KiB must use path references (the intended pattern);
+very long model messages show a truncation affordance; uploads over 20 MB still
+reject pre-decode, now with a deterministic transport close.
