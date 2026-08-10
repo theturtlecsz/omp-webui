@@ -1,0 +1,14 @@
+{"id":"probe-negotiate","type":"negotiate_protocol","protocolVersion":2}
+{"id":"probe-state","type":"get_state"}
+{"id":"probe-models","type":"get_available_models"}
+{"id":"probe-commands","type":"get_available_commands"}
+{"id":"probe-login","type":"get_login_providers"}
+{"id":"probe-todos","type":"set_todos","phases":[{"id":"phase-1","name":"Probe","tasks":[{"id":"t1","content":"Capture ready frame","status":"completed"},{"id":"t2","content":"Capture state","status":"in_progress"}]}]}
+{"id":"probe-state2","type":"get_state"}
+{"id":"probe-setmodel","type":"set_model","provider":"teststub","modelId":"stub-1"}
+{"id":"probe-prompt","type":"prompt","message":"Reply with just the word hello"}
+{"id":"probe-prompt2","type":"prompt","message":"Please use a tool to say hi"}
+{"id":"probe-state3","type":"get_state"}
+{"id":"probe-abort","type":"abort"}
+{"id":"probe-messages","type":"get_messages"}
+{"id":"probe-bad","type":"definitely_not_a_command"}

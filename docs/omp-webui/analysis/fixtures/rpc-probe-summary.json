@@ -1,0 +1,22 @@
+{
+  "frameCount": 105,
+  "frameTypes": [
+    "ready",
+    "extension_ui_request",
+    "available_commands_update",
+    "response",
+    "thinking_level_changed",
+    "agent_start",
+    "turn_start",
+    "message_start",
+    "message_end",
+    "message_update",
+    "turn_end",
+    "todo_reminder",
+    "agent_end",
+    "tool_execution_start",
+    "tool_execution_update",
+    "tool_execution_end"
+  ],
+  "exitCode": 0
+}
