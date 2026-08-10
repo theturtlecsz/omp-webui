@@ -187,10 +187,18 @@ export class SessionRuntime {
     // Dialog-like methods -> browser approval/question dialogs
     if (method === "confirm") {
       this.#pendingInteractions.set(id, { id, kind: "approval", method, payload: frame });
-      this.#emit("approval.requested", frame);
+      this.#emit("approval.requested", { ...frame, interactionId: id, title: frame.title ?? frame.message });
+    } else if (method === "select" && isToolApprovalSelect(frame)) {
+      // omp tool approvals arrive as select(["Approve","Deny"]) — normalize to approval
+      const title = String(frame.title ?? "Approve tool call?");
+      const toolName = /^Allow tool: (.+)$/m.exec(title)?.[1]?.trim();
+      const payload = { ...frame, interactionId: id, title, toolName, options: frame.options };
+      this.#pendingInteractions.set(id, { id, kind: "approval", method, payload });
+      this.#emit("approval.requested", payload);
     } else if (method === "select" || method === "input" || method === "editor") {
-      this.#pendingInteractions.set(id, { id, kind: "question", method, payload: frame });
-      this.#emit("question.requested", frame);
+      const payload = { ...frame, interactionId: id };
+      this.#pendingInteractions.set(id, { id, kind: "question", method, payload });
+      this.#emit("question.requested", payload);
     } else if (method === "cancel") {
       const pending = this.#pendingInteractions.get(String(frame.targetId ?? id));
       if (pending) {
@@ -214,7 +222,26 @@ export class SessionRuntime {
     const pending = this.#pendingInteractions.get(id);
     if (!pending) return false;
     this.#pendingInteractions.delete(id);
-    this.worker?.send({ type: "extension_ui_response", id, ...response });
+    let rpc: Record<string, unknown>;
+    if (response.cancelled === true) {
+      rpc = { type: "extension_ui_response", id, cancelled: true };
+    } else if (pending.method === "select") {
+      // select answers carry a value; approvals-normalized-from-select translate
+      // confirmed -> "Approve"/"Deny"
+      const options = Array.isArray(pending.payload.options) ? (pending.payload.options as unknown[]).map(String) : [];
+      let value = typeof response.value === "string" ? response.value : "";
+      if (!value && typeof response.confirmed === "boolean") {
+        value = response.confirmed
+          ? (options.find((o) => /^approve$/i.test(o)) ?? options[0] ?? "Approve")
+          : (options.find((o) => /^deny$/i.test(o)) ?? options[1] ?? "Deny");
+      }
+      rpc = { type: "extension_ui_response", id, value };
+    } else if (pending.method === "confirm") {
+      rpc = { type: "extension_ui_response", id, confirmed: response.confirmed === true };
+    } else {
+      rpc = { type: "extension_ui_response", id, value: String(response.value ?? "") };
+    }
+    this.worker?.send(rpc);
     return true;
   }
 
@@ -266,7 +293,7 @@ export function normalizeMessage(msg: unknown): Partial<TranscriptItem> | null {
       if (c && typeof c === "object") {
         const cc = c as Record<string, unknown>;
         if (cc.type === "text" && typeof cc.text === "string") parts.push(cc.text);
-        else if (cc.type === "thinking" && typeof cc.thinking === "string") parts.push(`[thinking] ${cc.thinking}`);
+        // thinking blocks are intentionally excluded from transcript text
       }
     }
   } else if (typeof content === "string") {
@@ -282,4 +309,11 @@ export function normalizeMessage(msg: unknown): Partial<TranscriptItem> | null {
 
 export function newEventId(): string {
   return `ev_${randomUUID()}`;
+}
+
+/** omp tool approvals arrive as select(["Approve","Deny"]) with an "Allow tool:" title. */
+function isToolApprovalSelect(frame: Record<string, unknown>): boolean {
+  const title = String(frame.title ?? "");
+  const options = Array.isArray(frame.options) ? (frame.options as unknown[]).map(String) : [];
+  return title.startsWith("Allow tool:") && options.includes("Approve") && options.includes("Deny");
 }

@@ -1,0 +1,108 @@
+version: 1
+tasks:
+  - id: T-000
+    title: Phase 0 repository & protocol analysis
+    owner: repo-protocol-analyst
+    status: done
+    files: [docs/omp-webui/analysis]
+    validation: ls docs/omp-webui/analysis/*.md
+  - id: T-001
+    title: Real RPC fixtures from live worker
+    owner: orchestrator
+    status: done
+    files: [docs/omp-webui/analysis/fixtures, scripts/rpc-probe.ts, scripts/stub-llm.ts]
+    validation: test -s docs/omp-webui/analysis/fixtures/rpc-probe-frames.jsonl
+  - id: T-010
+    title: Daemon protocol envelope + types
+    owner: backend-engineer
+    status: done
+    files: [packages/daemon/src/protocol.ts]
+  - id: T-011
+    title: Worker lifecycle (spawn, v2, chunks, supervision)
+    owner: backend-engineer
+    status: done
+    files: [packages/daemon/src/worker.ts]
+  - id: T-012
+    title: Store + session-file scanner + snapshot builder
+    owner: backend-engineer
+    status: done
+    files: [packages/daemon/src/store.ts, packages/daemon/src/session-files.ts, packages/daemon/src/server.ts]
+  - id: T-013
+    title: WS server + dispatch + replay + security controls
+    owner: backend-engineer
+    status: done
+    files: [packages/daemon/src/server.ts, packages/daemon/src/workspace.ts]
+  - id: T-014
+    title: Session runtime (omp frame → normalized event adapter)
+    owner: backend-engineer
+    status: done
+    files: [packages/daemon/src/session-runtime.ts]
+  - id: T-015
+    title: Phase 1 vertical slice test (live worker)
+    owner: backend-engineer
+    status: done
+    validation: cd packages/daemon && bun test test/vertical-slice.test.ts
+  - id: T-016
+    title: Phase 2 persistence test (daemon restart + resume)
+    owner: backend-engineer
+    status: done
+    validation: cd packages/daemon && bun test test/persistence.test.ts
+  - id: T-017
+    title: Design system tokens + a11y checklist
+    owner: ux-a11y-engineer
+    status: done
+    files: [packages/web/src/styles, docs/omp-webui/DESIGN_SYSTEM.md, docs/omp-webui/A11Y_CHECKLIST.md]
+  - id: T-018
+    title: Tool-render contracts (registry, generic model, WebView schema)
+    owner: tool-extension-engineer
+    status: done
+    files: [packages/web/src/tool-render, docs/omp-webui/TOOL_UI.md]
+    validation: bun x vitest run packages/web/test/tool-render
+  - id: T-020
+    title: Web app (client, store, reducer, all components)
+    owner: frontend-engineer
+    status: in_progress
+    files: [packages/web/src, packages/web/test]
+  - id: T-021
+    title: Frontend unit/component tests
+    owner: frontend-engineer
+    status: in_progress
+    depends: [T-020]
+    validation: cd packages/web && bun x vitest run
+  - id: T-030
+    title: Subagent subscription wiring + subagent panel events
+    owner: backend-engineer
+    status: todo
+    files: [packages/daemon/src/server.ts]
+  - id: T-031
+    title: Worker crash fault test + malformed frame test
+    owner: security-reliability-engineer
+    status: todo
+  - id: T-032
+    title: Approval-mode worker config for dialog E2E
+    owner: backend-engineer
+    status: todo
+  - id: T-040
+    title: Playwright E2E suite (18 scenarios)
+    owner: test-release-engineer
+    status: todo
+    files: [packages/e2e]
+  - id: T-041
+    title: Clean-clone install test script
+    owner: test-release-engineer
+    status: todo
+  - id: T-050
+    title: UX/a11y final pass on integrated app
+    owner: ux-a11y-engineer
+    status: todo
+    depends: [T-020]
+  - id: T-060
+    title: Independent integration review + defect fixes
+    owner: integration-reviewer
+    status: todo
+    depends: [T-020, T-040]
+  - id: T-070
+    title: Acceptance matrix evidence + final report
+    owner: orchestrator
+    status: todo
+    depends: [T-060]

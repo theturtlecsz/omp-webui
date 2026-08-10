@@ -110,10 +110,16 @@ describe("phase 1 vertical slice", () => {
     expect(delta.payload).toBeTruthy();
     await client.waitFor((r) => r.type === "message.completed", 30_000);
 
-    // tool-executing prompt
+    // tool-executing prompt — approval mode is "write" by default, so the exec
+    // tool must raise a REAL approval dialog that round-trips before execution
     await client.command("prompt.submit", { message: "please use a tool now" }, "new:" + workspaceDir);
     const toolStart = await client.waitFor((r) => r.type === "tool.started", 30_000);
     expect((toolStart.payload as { toolName: string }).toolName).toBe("bash");
+    const approval = await client.waitFor((r) => r.type === "approval.requested", 30_000);
+    const interactionId = (approval.payload as { interactionId: string }).interactionId;
+    expect(interactionId).toBeTruthy();
+    const approvalResp = await client.command("approval.respond", { interactionId, confirmed: true }, (toolStart as { sessionId?: string }).sessionId);
+    expect(approvalResp.error).toBeUndefined();
     const toolEnd = await client.waitFor((r) => r.type === "tool.completed", 30_000);
     expect(JSON.stringify(toolEnd.payload)).toContain("hello-from-omp-tool");
 

@@ -63,7 +63,7 @@ describe("phase 2 persistence", () => {
     if (!canRun) { console.warn("SKIP: stub LLM unavailable"); return; }
 
     // --- Daemon instance 1 ---
-    const d1 = new Daemon({ host: "127.0.0.1", port: 0, dbPath });
+    const d1 = new Daemon({ host: "127.0.0.1", port: 0, dbPath, approvalMode: "yolo" });
     await d1.start();
     const c1 = new TestClient(d1.port);
     await c1.open();
@@ -88,7 +88,7 @@ describe("phase 2 persistence", () => {
     await d1.stop();
 
     // --- Daemon instance 2 (fresh process state, same DB) ---
-    const d2 = new Daemon({ host: "127.0.0.1", port: 0, dbPath });
+    const d2 = new Daemon({ host: "127.0.0.1", port: 0, dbPath, approvalMode: "yolo" });
     await d2.start();
     const c2 = new TestClient(d2.port);
     await c2.open();

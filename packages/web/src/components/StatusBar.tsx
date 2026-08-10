@@ -1,0 +1,3 @@
+import { Circle } from 'lucide-react';
+import type { ConnectionState } from '../lib/types';
+export function StatusBar({connection,worker,model,thinking,context,tokensPerSecond}:{connection:ConnectionState;worker?:string;model?:string;thinking?:string;context?:number;tokensPerSecond?:number}){return <footer className="status-bar"><span><Circle size={9} fill="currentColor"/> {connection}</span><span>Worker: {worker??'stopped'}</span><span>{model??'No model'}</span><span>Thinking: {thinking??'off'}</span>{context!==undefined&&<span>Context: {context}%</span>}{tokensPerSecond!==undefined&&<span>{tokensPerSecond.toFixed(1)} tok/s</span>}</footer>}

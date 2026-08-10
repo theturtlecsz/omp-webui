@@ -1,0 +1,7 @@
+import type { Envelope, SessionStatePayload, SessionSummary, TranscriptItem } from '../../../daemon/src/protocol';
+export type ConnectionState = 'connecting' | 'online' | 'reconnecting' | 'offline';
+export type ToolCard = { toolCallId: string; toolName: string; args?: unknown; partialResult?: unknown; result?: unknown; state: 'running'|'success'|'failure'|'cancelled'; isError?: boolean; startedAt?: number; endedAt?: number; collapsed?: boolean };
+export type PendingInteraction = { id: string; method: string; kind: 'approval'|'question'; payload: Record<string, unknown> };
+export type Workspace = { id: string; root: string; [key: string]: unknown };
+export type AppState = { connection: ConnectionState; workspaces: Workspace[]; activeWorkspaceId?: string; sessions: SessionSummary[]; activeSession?: { sessionId: string; sessionFile: string }; transcript: TranscriptItem[]; toolCards: Record<string, ToolCard>; pendingInteractions: PendingInteraction[]; sessionState: SessionStatePayload & { workerState?: string; statusMessage?: string; tokensPerSecond?: number }; queuedPrompts: string[]; drafts: Record<string,string>; seenEvents: Record<string,true>; lastSequences: Record<string,number>; replayDone: Record<string,boolean>; };
+export type ServerEnvelope = Envelope<Record<string, unknown>>;

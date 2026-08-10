@@ -30,6 +30,7 @@ const daemon = new Daemon({
   authToken: typeof args.token === "string" ? args.token : undefined,
   webDistDir: typeof args["web-dist"] === "string" ? args["web-dist"] : undefined,
   allowedOrigins: typeof args.origin === "string" ? [args.origin] : undefined,
+  approvalMode: typeof args["approval-mode"] === "string" ? args["approval-mode"] : undefined,
 });
 
 await daemon.start();

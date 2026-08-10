@@ -24,6 +24,8 @@ export interface DaemonOptions {
   workerEnv?: NodeJS.ProcessEnv;
   workerIdleMs?: number;
   dbPath?: string;
+  /** omp --approval-mode value for spawned workers (default "write": exec tools prompt). */
+  approvalMode?: string;
 }
 
 interface Client {
@@ -70,6 +72,7 @@ export class Daemon {
       ompBin: opts.ompBin ?? "omp",
       workerEnv: opts.workerEnv ?? {},
       workerIdleMs: opts.workerIdleMs ?? 10 * 60 * 1000,
+      approvalMode: opts.approvalMode ?? "write",
     };
     this.store = new Store(opts.dbPath);
   }
@@ -434,7 +437,13 @@ export class Daemon {
     this.#runtimes.set(key, rt);
 
     const worker = new OmpWorker(
-      { cwd: boundary.root, sessionFile, ompBin: this.opts.ompBin, env: this.opts.workerEnv },
+      {
+        cwd: boundary.root,
+        sessionFile,
+        ompBin: this.opts.ompBin,
+        env: this.opts.workerEnv,
+        extraArgs: this.opts.approvalMode ? [`--approval-mode=${this.opts.approvalMode}`] : [],
+      },
       {
         onFrame: (frame) => {
           if (frame.type === "ready") return;
@@ -442,7 +451,12 @@ export class Daemon {
         },
         onStateChange: (state, detail) => {
           rt!.workerStateChanged(state, detail);
-          if (state === "ready") void rt!.refreshState();
+          if (state === "ready") {
+            void rt!.refreshState();
+            // subagent visibility for the browser panel
+            worker.command({ type: "set_subagent_subscription", level: "progress" }, 10_000)
+              .catch(() => { /* older runtimes: subagent frames simply absent */ });
+          }
         },
         onExit: () => { /* runtime keeps sessionFile; restart happens on next ensure */ },
       },
