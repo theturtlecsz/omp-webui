@@ -4,6 +4,7 @@
   "type": "module",
   "private": true,
   "devDependencies": {
+    "@playwright/test": "1.59.0",
     "@types/bun": "latest",
     "@types/node": "^26.2.0",
     "vitest": "^4.1.10"

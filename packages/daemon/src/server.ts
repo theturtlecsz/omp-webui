@@ -411,6 +411,15 @@ export class Daemon {
               sessionId: s.sessionId, sessionFile: s.sessionFile, workspaceId,
               title: s.title, archived: 0, createdAt: s.createdAt, updatedAt: s.updatedAt, messageCount: s.messageCount,
             });
+          } else if (existing.messageCount !== s.messageCount || existing.title !== s.title || existing.updatedAt !== s.updatedAt) {
+            // keep the index truthful: disk is authoritative for counts/titles
+            this.store.upsertSession({
+              sessionId: s.sessionId, sessionFile: s.sessionFile, workspaceId,
+              title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, messageCount: s.messageCount,
+            });
+            existing.messageCount = s.messageCount;
+            existing.title = s.title;
+            existing.updatedAt = s.updatedAt;
           }
         }
       }
@@ -601,6 +610,11 @@ export class Daemon {
     }
     if (!rt || !rt.worker || rt.worker.state !== "ready") throw new Error("session is not active; open it first");
     return rt;
+  }
+
+  /** Test hook: iterate live runtimes (fault injection). */
+  getRuntimeList(): SessionRuntime[] {
+    return [...this.#runtimes.values()];
   }
 
   #reapIdleWorkers(): void {

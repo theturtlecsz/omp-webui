@@ -114,6 +114,11 @@ export class OmpWorker {
     }
   }
 
+  /** Test hook: hard-kill the subprocess (fault injection). */
+  killNow(signal: NodeJS.Signals = "SIGKILL"): void {
+    this.#proc?.kill(signal);
+  }
+
   async stop(graceMs = 3000): Promise<void> {
     this.#stoppedByUs = true;
     const proc = this.#proc;
