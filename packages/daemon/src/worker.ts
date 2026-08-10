@@ -31,6 +31,10 @@ interface Pending {
 }
 
 const CHUNK_REASSEMBLY_LIMIT = 64 * 1024 * 1024; // advertised maxReassembledFrameBytes
+const MAX_RAW_LINE_BYTES = 8 * 1024 * 1024; // any single stdout line beyond this is dropped
+const MAX_CHUNK_COUNT = 8192; // per-message chunk bound
+const MAX_CONCURRENT_CHUNK_IDS = 16; // in-flight assemblies
+const CHUNK_ASSEMBLY_TTL_MS = 60_000; // incomplete assemblies expire
 
 export class OmpWorker {
   readonly id = randomUUID();
@@ -40,7 +44,7 @@ export class OmpWorker {
 
   #proc: ChildProcess | null = null;
   #pending = new Map<string, Pending>();
-  #chunks = new Map<string, { count: number; byteLength: number; parts: Buffer[]; received: number }>();
+  #chunks = new Map<string, { count: number; byteLength: number; parts: Buffer[]; received: number; bytes: number; createdAt: number }>();
   #opts: WorkerOptions;
   #events: WorkerEvents;
   #protocolVersion = 1;
@@ -139,7 +143,25 @@ export class OmpWorker {
     this.#events.onStateChange(state, detail);
   }
 
+  /** Test hook: feed a raw stdout line through the hardened frame pipeline. */
+  injectLine(line: string): void {
+    this.#onLine(line);
+  }
+
   #onLine(line: string): void {
+    try {
+      this.#onLineUnsafe(line);
+    } catch (err) {
+      // A hostile/malformed frame must never take down the daemon.
+      console.error(`[worker ${this.id.slice(0, 8)}] frame handling error, dropping: ${String(err).slice(0, 200)}`);
+    }
+  }
+
+  #onLineUnsafe(line: string): void {
+    if (line.length > MAX_RAW_LINE_BYTES) {
+      console.error(`[worker ${this.id.slice(0, 8)}] oversized line (${line.length} bytes), dropping`);
+      return;
+    }
     const trimmed = line.trim();
     if (!trimmed) return;
     let frame: Record<string, unknown>;
@@ -198,14 +220,19 @@ export class OmpWorker {
       console.error("[worker] malformed rpc_chunk, dropping");
       return null;
     }
-    if (byteLength > CHUNK_REASSEMBLY_LIMIT) {
-      console.error(`[worker] rpc_chunk reassembly over limit (${byteLength}), dropping`);
+    if (byteLength > CHUNK_REASSEMBLY_LIMIT || count <= 0 || count > MAX_CHUNK_COUNT) {
+      console.error(`[worker] rpc_chunk over limit (bytes=${byteLength} count=${count}), dropping`);
       this.#chunks.delete(chunkId);
+      return null;
+    }
+    this.#sweepStaleChunks();
+    if (!this.#chunks.has(chunkId) && this.#chunks.size >= MAX_CONCURRENT_CHUNK_IDS) {
+      console.error("[worker] too many concurrent chunk assemblies, dropping");
       return null;
     }
     let acc = this.#chunks.get(chunkId);
     if (!acc) {
-      acc = { count, byteLength, parts: new Array(count), received: 0 };
+      acc = { count, byteLength, parts: new Array(count), received: 0, bytes: 0, createdAt: Date.now() };
       this.#chunks.set(chunkId, acc);
     }
     if (acc.count !== count || acc.byteLength !== byteLength || index < 0 || index >= count || acc.parts[index]) {
@@ -213,8 +240,15 @@ export class OmpWorker {
       this.#chunks.delete(chunkId);
       return null;
     }
-    acc.parts[index] = Buffer.from(data, "base64");
+    const part = Buffer.from(data, "base64");
+    acc.parts[index] = part;
     acc.received++;
+    acc.bytes += part.byteLength;
+    if (acc.bytes > CHUNK_REASSEMBLY_LIMIT) {
+      console.error("[worker] rpc_chunk aggregate bytes over limit, dropping");
+      this.#chunks.delete(chunkId);
+      return null;
+    }
     if (acc.received < count) return null;
     this.#chunks.delete(chunkId);
     const buf = Buffer.concat(acc.parts);
@@ -227,6 +261,14 @@ export class OmpWorker {
     } catch {
       console.error("[worker] reassembled frame is not valid JSON");
       return null;
+    }
+  }
+
+  /** Expire incomplete chunk assemblies so a noisy worker cannot leak memory. */
+  #sweepStaleChunks(): void {
+    const now = Date.now();
+    for (const [id, acc] of this.#chunks) {
+      if (now - acc.createdAt > CHUNK_ASSEMBLY_TTL_MS) this.#chunks.delete(id);
     }
   }
 }

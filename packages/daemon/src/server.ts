@@ -11,7 +11,8 @@ import { Store } from "./store.js";
 import { OmpWorker } from "./worker.js";
 import { SessionRuntime, normalizeMessage } from "./session-runtime.js";
 import { WorkspaceBoundary, PathEscapeError, readWorkspaceFile, searchWorkspaceFiles, gitStatus, gitDiff } from "./workspace.js";
-import { listSessionFiles, readSessionEntries } from "./session-files.js";
+import { listSessionFiles, readSessionEntries, sessionDirForCwd } from "./session-files.js";
+import { realpathSync } from "node:fs"; // session containment
 import { PROTOCOL_VERSION, type ClientCommand, type Envelope } from "./protocol.js";
 
 export interface DaemonOptions {
@@ -171,16 +172,30 @@ export class Daemon {
       res.writeHead(400).end("bad request");
       return;
     }
-    const artDir = sessionFile.replace(/\.jsonl$/, "") + "-artifacts";
-    const full = resolve(join(artDir, name));
-    if (relative(resolve(artDir), full).startsWith("..") || !existsSync(full)) {
+    // Authorization: the session file must belong to a registered workspace.
+    if (!this.store.getSessionByFile(sessionFile) && !this.#sessionFileAllowed(sessionFile)) {
+      res.writeHead(403).end("forbidden");
+      return;
+    }
+    // Canonical containment: resolve the artifact dir AND the final target,
+    // rejecting final-component and intermediate symlinks that escape.
+    let realDir: string;
+    try { realDir = realpathSync(sessionFile.replace(/\.jsonl$/, "") + "-artifacts"); } catch { res.writeHead(404).end("not found"); return; }
+    const full = resolve(join(realDir, name));
+    if (relative(realDir, full).startsWith("..") || !existsSync(full)) {
       res.writeHead(404).end("not found");
       return;
     }
-    const stat = statSync(full);
+    let realTarget: string;
+    try { realTarget = realpathSync(full); } catch { res.writeHead(404).end("not found"); return; }
+    if (relative(realDir, realTarget).startsWith("..") || relative(realDir, realTarget) === "") {
+      res.writeHead(403).end("forbidden");
+      return;
+    }
+    const stat = statSync(realTarget);
     if (stat.size > 32 * 1024 * 1024) { res.writeHead(413).end("artifact too large"); return; }
-    res.writeHead(200, { "content-type": MIME[extname(full)] ?? "application/octet-stream" });
-    res.end(readFileSync(full));
+    res.writeHead(200, { "content-type": MIME[extname(realTarget)] ?? "application/octet-stream" });
+    res.end(readFileSync(realTarget));
   }
 
   // -------------------------------------------------------------- WebSocket
@@ -212,13 +227,14 @@ export class Daemon {
   }
 
   #originAllowed(origin: string): boolean {
-    if (this.opts.allowedOrigins?.length) return this.opts.allowedOrigins.includes(origin);
+    // Loopback origins are always allowed; --origin entries are ADDITIONAL.
     try {
       const u = new URL(origin);
-      return u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "::1";
+      if (u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "::1") return true;
     } catch {
       return false;
     }
+    return this.opts.allowedOrigins?.includes(origin) ?? false;
   }
 
   async #onClientMessage(client: Client, data: unknown): Promise<void> {
@@ -231,6 +247,14 @@ export class Daemon {
     }
     if (typeof cmd?.type !== "string" || typeof cmd?.id !== "string") {
       this.#send(client, { type: "connection.error", error: { message: "missing type/id" }, correlationId: cmd?.id });
+      return;
+    }
+    if (cmd.protocolVersion !== PROTOCOL_VERSION) {
+      this.#send(client, {
+        type: "connection.error",
+        correlationId: cmd.id,
+        error: { message: `unsupported protocolVersion ${String(cmd.protocolVersion)}; expected ${PROTOCOL_VERSION}`, code: "protocol_version" },
+      });
       return;
     }
     try {
@@ -285,6 +309,7 @@ export class Daemon {
         const sessionFile = String(p.sessionFile ?? "");
         const workspaceId = String(p.workspaceId ?? "");
         const boundary = this.#requireBoundary(workspaceId);
+        this.#assertSessionWithinWorkspace(boundary, sessionFile);
         const rt = await this.#ensureRuntime(boundary, sessionFile, workspaceId);
         this.#send(client, { type: "response", correlationId: cmd.id, sessionId: rt.sessionId || undefined, payload: { sessionFile: rt.sessionFile, sessionId: rt.sessionId || null } });
         return;
@@ -297,6 +322,7 @@ export class Daemon {
       }
       case "session.fork": {
         const sessionFile = String(p.sessionFile ?? "");
+        this.#assertKnownSessionFile(sessionFile);
         const entries = readSessionEntries(sessionFile);
         const upToEntryId = p.entryId ? String(p.entryId) : undefined;
         const newFile = forkSessionFile(sessionFile, entries, upToEntryId);
@@ -549,9 +575,13 @@ export class Daemon {
   }
 
   async #resumeSession(client: Client, sessionIdOrFile: string, afterSequence: number, correlationId: string): Promise<void> {
+    // Arbitrary paths are never read: only indexed sessions, or files proven to
+    // live under a registered workspace's session directory, are resumable.
     const meta = this.store.getSessionByFile(sessionIdOrFile)
       ?? this.store.listSessions(undefined, true).find((s) => s.sessionId === sessionIdOrFile)
-      ?? (sessionIdOrFile.endsWith(".jsonl") ? this.#indexSessionFile(sessionIdOrFile) : undefined);
+      ?? (sessionIdOrFile.endsWith(".jsonl") && this.#sessionFileAllowed(sessionIdOrFile)
+        ? this.#indexSessionFile(sessionIdOrFile)
+        : undefined);
     if (!meta) {
       this.#send(client, { type: "response", correlationId, error: { message: "unknown session", code: "session_not_found" } });
       return;
@@ -583,6 +613,52 @@ export class Daemon {
   }
 
   // -------------------------------------------------------------- helpers
+
+  /** Canonical session-file containment: must live inside a REGISTERED workspace's session dir.
+   *  omp creates session files lazily, so a not-yet-existing file is checked lexically;
+   *  once it exists, symlinks must also resolve inside the dir. */
+  #sessionFileAllowed(sessionFile: string): boolean {
+    if (!sessionFile.endsWith(".jsonl")) return false;
+    let canonical: string;
+    try { canonical = realpathSync(sessionFile); } catch { canonical = resolve(sessionFile); }
+    for (const ws of this.store.listWorkspaces()) {
+      let dir: string;
+      try { dir = realpathSync(sessionDirForCwd(ws.root)); } catch { dir = resolve(sessionDirForCwd(ws.root)); }
+      const rel = relative(dir, canonical);
+      if (rel && !rel.startsWith("..") && !rel.includes("/")) return true;
+    }
+    return false;
+  }
+
+  #assertKnownSessionFile(sessionFile: string): void {
+    if (this.store.getSessionByFile(sessionFile)) return;
+    if (this.#sessionFileAllowed(sessionFile)) return;
+    throw new PathEscapeError(sessionFile, "session file is not inside an approved workspace session directory");
+  }
+
+  #assertSessionWithinWorkspace(boundary: WorkspaceBoundary, sessionFile: string): void {
+    const dir = sessionDirForCwd(boundary.root);
+    let realDir: string;
+    try { realDir = realpathSync(dir); } catch {
+      // Session dir not created yet: fall back to the lexical path — workspace
+      // roots are canonicalized at registration, and the file itself is
+      // checked below when it exists.
+      realDir = resolve(dir);
+    }
+    const target = resolve(sessionFile);
+    const rel = relative(realDir, target);
+    if (!rel || rel.startsWith("..") || rel.includes("/") || !target.endsWith(".jsonl")) {
+      throw new PathEscapeError(sessionFile, "session file is outside this workspace's session directory");
+    }
+    // If the file already exists, symlinks must resolve inside the dir too.
+    if (existsSync(target)) {
+      const canonical = realpathSync(target);
+      const realRel = relative(realDir, canonical);
+      if (!realRel || realRel.startsWith("..") || realRel.includes("/")) {
+        throw new PathEscapeError(sessionFile, "session file symlink escapes the workspace session directory");
+      }
+    }
+  }
 
   #indexSessionFile(sessionFile: string) {
     const entries = readSessionEntries(sessionFile);
@@ -628,6 +704,7 @@ export class Daemon {
       rt = [...this.#runtimes.values()].filter((r) => r.cwd === cwd).pop();
     }
     if (!rt || !rt.worker || rt.worker.state !== "ready") throw new Error("session is not active; open it first");
+    rt.lastActivity = Date.now();
     return rt;
   }
 
@@ -636,13 +713,23 @@ export class Daemon {
     return [...this.#runtimes.values()];
   }
 
+  /** Test hook: run the idle-worker reaper immediately. */
+  reapNow(): void {
+    this.#reapIdleWorkers();
+  }
+
+  /** Test hook: inject a raw stdout line into a session's worker (hostile-output tests). */
+  injectWorkerLine(sessionId: string, line: string): void {
+    const rt = [...this.#runtimes.values()].find((r) => r.sessionId === sessionId);
+    rt?.worker?.injectLine(line);
+  }
+
   #reapIdleWorkers(): void {
     const now = Date.now();
     for (const [key, rt] of this.#runtimes) {
       if (!rt.worker || rt.worker.state !== "ready") continue;
       if (rt.state.isStreaming) continue;
-      const last = (rt as unknown as { lastActivity?: number }).lastActivity ?? now;
-      if (now - last > this.opts.workerIdleMs) {
+      if (now - rt.lastActivity > this.opts.workerIdleMs) {
         void rt.worker.stop();
         this.#runtimes.delete(key);
         rt.dispose();

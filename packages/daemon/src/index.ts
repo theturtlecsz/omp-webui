@@ -4,15 +4,19 @@
  */
 import { Daemon } from "./server.js";
 
-function parseArgs(argv: string[]): Record<string, string | boolean> {
-  const out: Record<string, string | boolean> = {};
+function parseArgs(argv: string[]): Record<string, string | boolean | string[]> {
+  const out: Record<string, string | boolean | string[]> = {};
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith("--")) {
       const key = a.slice(2);
       const next = argv[i + 1];
       if (next && !next.startsWith("--")) {
-        out[key] = next;
+        if (key === "origin") {
+          (out.origin as string[] | undefined ?? (out.origin = [])).push(next);
+        } else {
+          out[key] = next;
+        }
         i++;
       } else {
         out[key] = true;
@@ -29,7 +33,7 @@ const daemon = new Daemon({
   port: typeof args.port === "string" ? Number(args.port) : 7483,
   authToken: typeof args.token === "string" ? args.token : undefined,
   webDistDir: typeof args["web-dist"] === "string" ? args["web-dist"] : undefined,
-  allowedOrigins: typeof args.origin === "string" ? [args.origin] : undefined,
+  allowedOrigins: Array.isArray(args.origin) ? args.origin : undefined,
   approvalMode: typeof args["approval-mode"] === "string" ? args["approval-mode"] : undefined,
 });
 

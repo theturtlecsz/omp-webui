@@ -23,6 +23,8 @@ export class SessionRuntime {
   sessionId = "";
   worker: OmpWorker | null = null;
   state: SessionStatePayload = { isStreaming: false };
+  /** Updated on every worker frame and browser command; drives idle reaping. */
+  lastActivity = Date.now();
 
   #store: Store;
   #emitRaw: EmitFn;
@@ -58,6 +60,7 @@ export class SessionRuntime {
 
   /** Main translation: raw omp frame -> normalized browser events. */
   onWorkerFrame(frame: Record<string, unknown>): void {
+    this.lastActivity = Date.now();
     const type = frame.type as string;
     switch (type) {
       case "ready":
@@ -219,6 +222,7 @@ export class SessionRuntime {
 
   /** Answer a pending approval/question; returns false if id unknown. */
   respondToInteraction(id: string, response: Record<string, unknown>): boolean {
+    this.lastActivity = Date.now();
     const pending = this.#pendingInteractions.get(id);
     if (!pending) return false;
     this.#pendingInteractions.delete(id);

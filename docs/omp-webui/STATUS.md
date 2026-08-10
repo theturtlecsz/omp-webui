@@ -2,7 +2,16 @@
 
 Last updated: 2026-08-10 (orchestrator)
 
-## Current phase: 2/3 — usable local alpha hardening; E2E in progress
+## Current phase: 4 — product refinement (UX/a11y + independent review in parallel)
+
+## 2026-08-10 (final stretch)
+- Playwright E2E: 8/8 specs green in real Chromium (verified independently by orchestrator).
+- Visual QA: app driven live via Playwright screenshots; found + fixed sidebar
+  "Streaming" label bug (worker ready ≠ streaming; daemon now exposes isStreaming).
+- Clean-clone launch: scripts/clean-clone-test.sh PASSES (caught + removed unused
+  better-sqlite3 native dep that broke fresh installs).
+- Daemon suite: 10/10 (slice, persistence, faults, queue-steer-abort, unknown-tool).
+- Subagents active: ux-a11y final pass; independent integration review.
 
 ## Completed
 - Phase 0 analysis (repo-protocol-analyst): REPO_MAP, RPC_INVENTORY, SESSION_FORMAT,
