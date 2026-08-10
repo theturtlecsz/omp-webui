@@ -13,7 +13,13 @@
 ## Network
 - Default bind `127.0.0.1`. `--host` outside loopback REQUIRES `--token` (daemon refuses
   to start otherwise) and should be fronted by TLS (see OPERATIONS.md).
-- WS origin allowlist: loopback origins by default; explicit `--origin` for others.
+- WS origin allowlist: loopback origins are ALWAYS allowed; `--origin` (repeatable) adds more.
+- Session/artifact filesystem access: session files must canonically live inside a
+  REGISTERED workspace's omp session dir; artifact dir+target realpath-resolved, symlink
+  escapes rejected (403). Foreign session paths are never read, opened, or forked.
+- Protocol version enforced: mismatched protocolVersion → connection.error (protocol_version).
+- Worker input bounds: chunk count/concurrency/aggregate-bytes/TTL + raw-line cap;
+  malformed frames dropped, never fatal to the daemon.
 - No wildcard origins. HTTP API requires the same token when configured.
 
 ## Workspace policy

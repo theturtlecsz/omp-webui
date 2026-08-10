@@ -80,3 +80,23 @@ All commands were run with `PATH="$HOME/.bun/bin:$PATH"`.
 ## Ship decision
 
 **NO-SHIP** until the critical session/artifact containment defect is remediated with regression tests. After that fix, rerun at minimum the full daemon suite, clean-clone test, browser suite, and the three live containment probes documented here.
+
+---
+
+## Remediation addendum (orchestrator, 2026-08-10, commit e94230b)
+
+All critical/major findings above were remediated by the orchestrator and independently
+re-verified. New regression suite `packages/daemon/test/containment.test.ts` (7 tests)
+reproduces the live attacks from this review — foreign `connection.resume`, foreign
+`session.fork`, out-of-workspace `session.open`, artifact final-component symlink escape,
+`protocolVersion: 0`, hostile chunk floods, oversized stdout lines, and idle-reaper
+behavior — all now rejected/bounded, daemon stable.
+
+Post-remediation suites (orchestrator-run):
+- `cd packages/daemon && bun test` — **17 pass, 0 fail**
+- `cd packages/web && bun x tsc --noEmit && bun x vitest run && bun run build` — clean, 19/19, build OK
+- `bun x playwright test` — **8 passed (23.4s)**
+- `bash scripts/clean-clone-test.sh` — **CLEAN-CLONE LAUNCH: PASS**
+
+Deferred with rationale: reducer `seenEvents` retention (minor; see ACCEPTANCE.md).
+Revised verdict: **SHIP** for local-first use per the security model in SECURITY.md.

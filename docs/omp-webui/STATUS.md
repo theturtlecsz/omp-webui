@@ -65,3 +65,11 @@ Last updated: 2026-08-10 (orchestrator)
 - Subagent streaming: daemon subscribes for progress events; UI proof pending (stub LLM
   does not spawn subagents).
 - Assistant text renders as plain/preformatted (safe); semantic markdown = Phase 4 option.
+
+## 2026-08-10 (acceptance complete)
+- Independent review: NO-SHIP on critical session/artifact containment bypass.
+- Orchestrator remediated ALL critical/major + 3 minor findings; new containment.test.ts
+  (7 tests) reproduces the review's live attacks — all rejected.
+- Final suites (orchestrator-verified): daemon 17/17, web tsc+19/19+build, Playwright 8/8
+  (23.4s), clean-clone PASS. REVIEW.md addendum revises verdict to SHIP.
+- Definition of Done: all 15 acceptance rows ✅ (see ACCEPTANCE.md).

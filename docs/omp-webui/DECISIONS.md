@@ -56,3 +56,23 @@
   `session.create` before the worker reports its session file via `get_state`.
 - **Reasoning**: `sessionFile` is omp's durable identifier; the alias covers the bootstrap gap.
 - **Consequences**: Clients should switch to the returned sessionFile as soon as known.
+
+## ADR-0012: Session/artifact containment is workspace-session-dir scoped
+Date: 2026-08-10
+Status: accepted
+Context: Independent review proved session.open/fork/resume and /api/artifact accepted
+arbitrary paths and followed final-component symlinks, escaping approved roots.
+Decision: session files are only honored when canonically contained in a REGISTERED
+workspace's omp session dir (`sessionDirForCwd(ws.root)`); lazily-created files are
+checked lexically until they exist, then by realpath; artifact dir and final target are
+both realpath-resolved and symlink escapes rejected with 403.
+Consequences: foreign sessions are unreadable/unforkable; regression tests reproduce the
+review's attacks. Opening a session whose file lives outside its workspace's session dir
+(e.g. imported by hand) requires moving it into the session dir first.
+
+## ADR-0013: Hostile-worker input bounds
+Date: 2026-08-10
+Status: accepted
+Decision: rpc_chunk reassembly bounded by count (8192), concurrent assemblies (16),
+aggregate bytes (64 MiB), and TTL (60 s); raw stdout lines over 8 MiB dropped; all frame
+handling wrapped in an error boundary that drops the frame instead of crashing the daemon.
