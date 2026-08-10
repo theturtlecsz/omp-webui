@@ -1,0 +1,364 @@
+/*
+ * OMP WebUI base styles
+ * Import after tokens.css. Component styles should consume the semantic tokens
+ * declared there rather than introducing one-off colors, spacing, or z-indexes.
+ */
+
+@import './tokens.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 20rem;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 100%;
+  line-height: var(--line-height-normal);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+  tab-size: 2;
+}
+
+body {
+  min-block-size: 100vh;
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+}
+
+#root {
+  min-block-size: 100vh;
+}
+
+button,
+input,
+textarea,
+select {
+  color: inherit;
+  font: inherit;
+}
+
+button,
+select {
+  text-transform: none;
+}
+
+button,
+[role='button'],
+select,
+label[for],
+summary {
+  cursor: pointer;
+}
+
+button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+button:disabled,
+input:disabled,
+textarea:disabled,
+select:disabled,
+[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+input,
+textarea,
+select {
+  min-inline-size: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
+  color: var(--color-text);
+}
+
+input,
+select {
+  min-block-size: var(--control-height-md);
+  padding: 0 var(--space-3);
+}
+
+textarea {
+  display: block;
+  inline-size: 100%;
+  min-block-size: 5rem;
+  padding: var(--space-2-5) var(--space-3);
+  resize: vertical;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-text-faint);
+  opacity: 1;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  inline-size: 1rem;
+  min-block-size: 1rem;
+  accent-color: var(--color-secondary);
+}
+
+textarea:focus,
+input:focus,
+select:focus {
+  border-color: var(--color-focus);
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+a {
+  color: var(--color-link);
+  text-decoration: underline;
+  text-decoration-color: currentcolor;
+  text-underline-offset: 0.15em;
+}
+
+a:hover {
+  color: var(--color-link-hover);
+}
+
+abbr[title] {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.15em;
+}
+
+b,
+strong {
+  font-weight: var(--font-weight-semibold);
+}
+
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font-mono);
+}
+
+code,
+kbd {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-sunken);
+  font-size: 0.9em;
+}
+
+code {
+  padding: 0.1em 0.3em;
+}
+
+kbd {
+  padding: 0.1em 0.35em;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+pre {
+  overflow: auto;
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-sunken);
+  color: var(--color-sand-200);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+}
+
+pre code {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+}
+
+img,
+picture,
+svg,
+canvas,
+video {
+  display: block;
+  max-inline-size: 100%;
+}
+
+img,
+video {
+  block-size: auto;
+}
+
+table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+th,
+td {
+  padding: var(--space-2) var(--space-3);
+  border-block-end: 1px solid var(--color-border-subtle);
+  text-align: start;
+}
+
+th {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+}
+
+hr {
+  block-size: 1px;
+  margin: var(--space-6) 0;
+  border: 0;
+  background: var(--color-border-subtle);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* Do not erase focus when a control receives keyboard focus. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+::selection {
+  background: var(--color-secondary);
+  color: var(--color-secondary-contrast);
+}
+
+::-webkit-scrollbar {
+  inline-size: 0.75rem;
+  block-size: 0.75rem;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: var(--radius-pill);
+  background: var(--color-border-strong);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-text-faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Screen-reader-only content remains available to assistive technology. */
+.u-sr-only {
+  position: absolute;
+  overflow: hidden;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.u-sr-only-focusable:focus,
+.u-sr-only-focusable:focus-visible {
+  position: fixed;
+  z-index: var(--z-toast);
+  inset-block-start: var(--space-3);
+  inset-inline-start: var(--space-3);
+  overflow: visible;
+  inline-size: auto;
+  block-size: auto;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  clip: auto;
+  clip-path: none;
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  font-weight: var(--font-weight-semibold);
+  white-space: normal;
+}
+
+.u-focus-ring:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  box-shadow: var(--shadow-focus);
+}
+
+.u-focus-ring-inset:focus-visible {
+  outline: 0;
+  box-shadow: inset 0 0 0 2px var(--color-focus), var(--shadow-focus);
+}
+
+.u-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.u-break-anywhere {
+  overflow-wrap: anywhere;
+}
+
+.u-scrollbar-stable {
+  scrollbar-gutter: stable;
+}
+
+.u-tabular-nums {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.u-text-muted {
+  color: var(--color-text-muted);
+}
+
+.u-text-faint {
+  color: var(--color-text-faint);
+}
+
+.u-text-danger {
+  color: var(--color-danger);
+}
+
+.u-text-success {
+  color: var(--color-success);
+}
+
+.u-text-warning {
+  color: var(--color-warning);
+}
+
+.u-no-select {
+  user-select: none;
+}

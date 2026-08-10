@@ -1,0 +1,267 @@
+/*
+ * OMP WebUI design tokens
+ * Import before base.css. The default theme is dark; add data-theme="light"
+ * or data-theme="dark" to <html> to select a theme explicitly.
+ */
+
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* Warm ink neutrals */
+  --color-ink-950: #101211;
+  --color-ink-900: #151716;
+  --color-ink-850: #1a1c1b;
+  --color-ink-800: #202321;
+  --color-ink-750: #292c29;
+  --color-ink-700: #343733;
+  --color-sand-50: #fffdf8;
+  --color-sand-100: #f7f3e9;
+  --color-sand-200: #ebe5d8;
+  --color-sand-300: #d7d0c1;
+  --color-sand-400: #b9b2a5;
+  --color-sand-500: #918b81;
+
+  /* Brand: copper for intent, teal for active/system state */
+  --color-copper-300: #ffc276;
+  --color-copper-400: #f4ad5a;
+  --color-copper-500: #df8b36;
+  --color-copper-600: #b96a22;
+  --color-teal-300: #74ddd0;
+  --color-teal-400: #47c5b7;
+  --color-teal-500: #209b91;
+  --color-teal-600: #16756e;
+
+  /* Semantic colors */
+  --color-green-300: #8bd9a2;
+  --color-green-500: #3ca568;
+  --color-yellow-300: #f6d778;
+  --color-yellow-500: #c99a2e;
+  --color-red-300: #ffaaa0;
+  --color-red-500: #d95c51;
+  --color-blue-300: #a9c9ff;
+  --color-blue-500: #5c8fdb;
+
+  /* Semantic surfaces and text */
+  --color-bg: var(--color-ink-950);
+  --color-bg-elevated: var(--color-ink-900);
+  --color-bg-sunken: #0c0e0d;
+  --color-surface: var(--color-ink-850);
+  --color-surface-hover: var(--color-ink-800);
+  --color-surface-active: var(--color-ink-750);
+  --color-surface-selected: #26302d;
+  --color-scrim: rgb(0 0 0 / 62%);
+  --color-border-subtle: #2a2d2a;
+  --color-border: #3a3d39;
+  --color-border-strong: #565a54;
+  --color-text: var(--color-sand-100);
+  --color-text-muted: var(--color-sand-400);
+  --color-text-faint: var(--color-sand-500);
+  --color-text-inverse: var(--color-ink-950);
+  --color-link: var(--color-teal-300);
+  --color-link-hover: #a0f0e6;
+  --color-accent: var(--color-copper-400);
+  --color-accent-hover: var(--color-copper-300);
+  --color-accent-active: var(--color-copper-500);
+  --color-accent-contrast: #251507;
+  --color-secondary: var(--color-teal-400);
+  --color-secondary-hover: var(--color-teal-300);
+  --color-secondary-active: var(--color-teal-500);
+  --color-secondary-contrast: #041d1a;
+  --color-success: var(--color-green-300);
+  --color-success-bg: #14291c;
+  --color-success-border: #2d7149;
+  --color-warning: var(--color-yellow-300);
+  --color-warning-bg: #302713;
+  --color-warning-border: #80611c;
+  --color-danger: var(--color-red-300);
+  --color-danger-bg: #351b19;
+  --color-danger-border: #88403a;
+  --color-info: var(--color-blue-300);
+  --color-info-bg: #182538;
+  --color-info-border: #385d94;
+  --color-focus: #7de5d9;
+  --color-focus-shadow: rgb(125 229 217 / 28%);
+
+  /* Spacing: 4 px base */
+  --space-0: 0;
+  --space-px: 1px;
+  --space-0-5: 0.125rem;
+  --space-1: 0.25rem;
+  --space-1-5: 0.375rem;
+  --space-2: 0.5rem;
+  --space-2-5: 0.625rem;
+  --space-3: 0.75rem;
+  --space-3-5: 0.875rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-7: 1.75rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-14: 3.5rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-24: 6rem;
+
+  /* Typography */
+  --font-sans: 'Instrument Sans', 'Avenir Next', 'Segoe UI Variable',
+    'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'Berkeley Mono', 'JetBrains Mono', 'SFMono-Regular', Consolas,
+    'Liberation Mono', monospace;
+  --font-size-2xs: 0.6875rem; /* 11px: icon labels only */
+  --font-size-xs: 0.75rem; /* 12px */
+  --font-size-sm: 0.8125rem; /* 13px */
+  --font-size-md: 0.875rem; /* 14px */
+  --font-size-base: 1rem; /* 16px */
+  --font-size-lg: 1.125rem; /* 18px */
+  --font-size-xl: 1.25rem; /* 20px */
+  --font-size-2xl: 1.5rem; /* 24px */
+  --font-size-3xl: 1.875rem; /* 30px */
+  --font-size-4xl: 2.25rem; /* 36px */
+  --line-height-tight: 1.2;
+  --line-height-snug: 1.35;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.625;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --letter-spacing-tight: -0.012em;
+  --letter-spacing-normal: 0;
+  --letter-spacing-wide: 0.04em;
+
+  /* Shape and depth */
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+  --radius-pill: 9999px;
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / 24%);
+  --shadow-sm: 0 2px 8px rgb(0 0 0 / 25%);
+  --shadow-md: 0 8px 24px rgb(0 0 0 / 32%);
+  --shadow-lg: 0 20px 48px rgb(0 0 0 / 42%);
+  --shadow-focus: 0 0 0 3px var(--color-focus-shadow);
+
+  /* Layout */
+  --sidebar-width: 17.5rem;
+  --drawer-width: 22rem;
+  --content-max-width: 52rem;
+  --composer-max-width: 58rem;
+  --control-height-sm: 1.875rem;
+  --control-height-md: 2.25rem;
+  --control-height-lg: 2.75rem;
+
+  /* Layering. Use these named levels instead of arbitrary integers. */
+  --z-base: 0;
+  --z-raised: 1;
+  --z-sticky: 10;
+  --z-header: 20;
+  --z-drawer: 30;
+  --z-popover: 40;
+  --z-tooltip: 50;
+  --z-modal-backdrop: 60;
+  --z-modal: 70;
+  --z-toast: 80;
+
+  /* Motion */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.2, 0.9, 0.2, 1);
+  --duration-instant: 80ms;
+  --duration-fast: 140ms;
+  --duration-normal: 200ms;
+  --duration-slow: 320ms;
+  --duration-stream: 480ms;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+
+  --color-ink-950: #20211f;
+  --color-ink-900: #2b2d2a;
+  --color-ink-850: #3c3e3a;
+  --color-ink-800: #51534e;
+  --color-ink-750: #666861;
+  --color-ink-700: #797b73;
+  --color-sand-50: #fffefa;
+  --color-sand-100: #fbf8ef;
+  --color-sand-200: #f2eddf;
+  --color-sand-300: #e4dccb;
+  --color-sand-400: #c9bfad;
+  --color-sand-500: #9a9182;
+
+  --color-copper-300: #d9872e;
+  --color-copper-400: #b8671c;
+  --color-copper-500: #914b0f;
+  --color-copper-600: #703708;
+  --color-teal-300: #0c837a;
+  --color-teal-400: #05675f;
+  --color-teal-500: #03534d;
+  --color-teal-600: #02413d;
+  --color-green-300: #267344;
+  --color-green-500: #195b33;
+  --color-yellow-300: #8a6410;
+  --color-yellow-500: #6d4d03;
+  --color-red-300: #b63d35;
+  --color-red-500: #8f251f;
+  --color-blue-300: #326fc3;
+  --color-blue-500: #23569d;
+
+  --color-bg: #f6f1e6;
+  --color-bg-elevated: #fffdf8;
+  --color-bg-sunken: #ebe4d6;
+  --color-surface: #fffdf8;
+  --color-surface-hover: #f7f1e5;
+  --color-surface-active: #ece2d0;
+  --color-surface-selected: #e3f0ea;
+  --color-scrim: rgb(25 24 20 / 44%);
+  --color-border-subtle: #e3dac9;
+  --color-border: #d1c5b2;
+  --color-border-strong: #ab9d88;
+  --color-text: #282923;
+  --color-text-muted: #615f56;
+  --color-text-faint: #847e72;
+  --color-text-inverse: #fffdf8;
+  --color-link: #05675f;
+  --color-link-hover: #02413d;
+  --color-accent: #a85c18;
+  --color-accent-hover: #81430d;
+  --color-accent-active: #703708;
+  --color-accent-contrast: #fffdf8;
+  --color-secondary: #05675f;
+  --color-secondary-hover: #02413d;
+  --color-secondary-active: #023631;
+  --color-secondary-contrast: #fffdf8;
+  --color-success: #195b33;
+  --color-success-bg: #e6f4e9;
+  --color-success-border: #78aa82;
+  --color-warning: #6d4d03;
+  --color-warning-bg: #fff4d5;
+  --color-warning-border: #d3ad4e;
+  --color-danger: #8f251f;
+  --color-danger-bg: #ffe9e5;
+  --color-danger-border: #d58a81;
+  --color-info: #23569d;
+  --color-info-bg: #e8f0ff;
+  --color-info-border: #86a9df;
+  --color-focus: #087e73;
+  --color-focus-shadow: rgb(8 126 115 / 24%);
+
+  --shadow-xs: 0 1px 2px rgb(61 48 28 / 8%);
+  --shadow-sm: 0 2px 8px rgb(61 48 28 / 10%);
+  --shadow-md: 0 8px 24px rgb(61 48 28 / 14%);
+  --shadow-lg: 0 20px 48px rgb(61 48 28 / 18%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-instant: 0ms;
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+    --duration-slow: 0ms;
+    --duration-stream: 0ms;
+  }
+}
