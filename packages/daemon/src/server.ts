@@ -359,7 +359,15 @@ export class Daemon {
       }
       case "model.list": {
         const rt = this.#requireRuntime(cmd);
-        const models = await rt.worker!.command({ type: "get_available_models" }, 15_000);
+        const available = await rt.worker!.command({ type: "get_available_models" }, 15_000) as unknown;
+        // OMP's RPC currently returns { models: [...] }, while the browser
+        // protocol intentionally exposes { models: [...] } directly. Avoid
+        // wrapping the RPC response a second time.
+        const models = Array.isArray(available)
+          ? available
+          : ((available && typeof available === "object" && Array.isArray((available as { models?: unknown }).models))
+            ? (available as { models: unknown[] }).models
+            : []);
         this.#send(client, { type: "response", correlationId: cmd.id, payload: { models } });
         return;
       }
@@ -401,7 +409,7 @@ export class Daemon {
         this.#boundaries.set(workspaceId, b);
         const onDisk = listSessionFiles(b.root);
         for (const s of onDisk) {
-          const existing = meta.find((m) => m.sessionId === s.sessionId);
+          const existing = this.store.getSessionByFile(s.sessionFile);
           if (!existing) {
             this.store.upsertSession({
               sessionId: s.sessionId, sessionFile: s.sessionFile, workspaceId,
@@ -411,15 +419,25 @@ export class Daemon {
               sessionId: s.sessionId, sessionFile: s.sessionFile, workspaceId,
               title: s.title, archived: 0, createdAt: s.createdAt, updatedAt: s.updatedAt, messageCount: s.messageCount,
             });
-          } else if (existing.messageCount !== s.messageCount || existing.title !== s.title || existing.updatedAt !== s.updatedAt) {
-            // keep the index truthful: disk is authoritative for counts/titles
-            this.store.upsertSession({
-              sessionId: s.sessionId, sessionFile: s.sessionFile, workspaceId,
-              title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, messageCount: s.messageCount,
-            });
-            existing.messageCount = s.messageCount;
-            existing.title = s.title;
-            existing.updatedAt = s.updatedAt;
+          } else {
+            const metaRow = meta.find((m) => m.sessionId === s.sessionId);
+            if (!metaRow && (includeArchived || existing.archived !== 1)) {
+              meta.push(existing);
+            }
+            if (existing.messageCount !== s.messageCount || existing.title !== s.title || existing.updatedAt !== s.updatedAt) {
+              // keep the index truthful: disk is authoritative for counts/titles
+              this.store.upsertSession({
+                sessionId: s.sessionId, sessionFile: s.sessionFile, workspaceId,
+                title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, messageCount: s.messageCount,
+              });
+              // NOTE: meta rows are separate instances from store rows — update both
+              for (const row of [existing, metaRow]) {
+                if (!row) continue;
+                row.messageCount = s.messageCount;
+                row.title = s.title;
+                row.updatedAt = s.updatedAt;
+              }
+            }
           }
         }
       }
@@ -679,7 +697,11 @@ export function buildSnapshot(sessionFile: string) {
           }
         }
       } else if (role === "toolResult") {
-        items.push({
+        const existing = items.find((item) => {
+          const candidate = item as { kind?: string; toolCallId?: unknown };
+          return candidate.kind === "tool" && candidate.toolCallId === raw.toolCallId;
+        }) as Record<string, unknown> | undefined;
+        const result = {
           id: `tr_${String(raw.toolCallId ?? items.length)}`,
           kind: "tool",
           toolName: raw.toolName,
@@ -688,7 +710,11 @@ export function buildSnapshot(sessionFile: string) {
           toolResult: { content: raw.content, details: raw.details },
           isError: raw.isError === true,
           timestamp: raw.timestamp,
-        });
+        };
+        // A tool call and its result are two session records but one visible
+        // transcript card. Preserve the call's arguments and enrich it here.
+        if (existing) Object.assign(existing, result, { id: existing.id });
+        else items.push(result);
       } else {
         const msg = normalizeMessage(raw);
         if (msg && (msg.text || msg.role)) {
@@ -721,7 +747,10 @@ export function forkSessionFile(sourceFile: string, entries: Record<string, unkn
     }
     lines.push(JSON.stringify(e));
     copied++;
-    if (upToEntryId && e.id === upToEntryId) break;
+    const message = e.message as Record<string, unknown> | undefined;
+    const role = typeof message?.role === "string" ? message.role : "assistant";
+    const timestamp = typeof message?.timestamp === "number" ? message.timestamp : undefined;
+    if (upToEntryId && (e.id === upToEntryId || (timestamp !== undefined && `${role}_${timestamp}` === upToEntryId))) break;
   }
   writeFileSync(newFile, lines.join("\n") + "\n");
   return newFile;
