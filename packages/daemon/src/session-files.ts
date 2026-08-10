@@ -40,7 +40,10 @@ export function encodeSessionDirName(cwd: string): string {
   const tmpRel = relative(tmpdir(), canonical);
   const enc = (prefix: string, rel: string) => {
     const encoded = rel.replace(/[/\\:]/g, "-");
-    return encoded ? `${prefix}-${encoded}` : prefix;
+    // OMP uses `-workspace-...` for home-relative paths and
+    // `-tmp-workspace-...` for /tmp paths. The home prefix already ends in
+    // the separator; the tmp prefix does not.
+    return encoded ? (prefix === "-" ? `-${encoded}` : `${prefix}-${encoded}`) : prefix;
   };
   if (homeRel === "" || (!homeRel.startsWith("..") && !isAbsolute(homeRel))) return enc("-", homeRel);
   if (tmpRel === "" || (!tmpRel.startsWith("..") && !isAbsolute(tmpRel))) return enc("-tmp", tmpRel);

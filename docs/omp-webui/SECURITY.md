@@ -26,15 +26,37 @@
 - `workspace.open` registers an explicit root; canonicalized with `realpath`.
 - `file.read`/`file.search`/`git.*` resolve and re-canonicalize the target and reject
   escapes (`path_escape`), including symlink escapes and `..` traversal.
-- File reads capped at 2 MiB (truncated flag), search results capped at 200 entries,
+- File previews are capped at 512 KiB (truncated flag), reject binary/invalid UTF-8
+  content, and search results are capped at 200 entries,
   directory walk depth ≤ 12, git output capped (8/16 MiB buffers, 1 MiB diff truncation).
 - `/api/artifact` rejects `..`/absolute names and caps size at 32 MiB.
+- `file.upload` uses the authenticated, origin-checked WebSocket command path. Decoded
+  base64 uploads are limited to 20 MiB, filenames are reduced to a safe basename, and
+  each file is created mode `0600` under
+  `~/.omp-webui/uploads/<workspaceId>/`. The uploads root, workspace directory, and
+  final target are realpath containment-checked; an upload can only be attached from
+  the workspace that created it.
 
 ## Process execution
 - Workers spawn with argument arrays (no shell). Commands from the browser never reach
   a shell; only omp's own tools execute commands, under omp's approval policies.
 - RPC frame reassembly bounded (64 MiB); per-line parse failures are isolated.
 - Worker stderr retained in a 128 KiB ring for diagnostics; never sent to the browser raw.
+
+### Opt-in user terminal
+- `--terminal` is off by default. It enables a **user-owned shell pane only**; it is not an
+  agent integration and no OMP worker/RPC command receives terminal bytes. If optional
+  `node-pty` is absent or cannot load, the daemon continues normally and terminal creation
+  returns `terminal_unavailable`.
+- A terminal can be created only over an origin-checked, authenticated WebSocket connection.
+  Its cwd is canonicalized through `WorkspaceBoundary` and must remain inside the active,
+  registered workspace, including against symlink and `..` escapes.
+- PTYs start `$SHELL` or `/bin/bash` with a scrubbed environment allowlist only:
+  `PATH`, `HOME`, `LANG`, `TERM`, `SHELL`, `USER`, and `COLORTERM`. The daemon uses no
+  command-string shell interpolation; project-command text is sent to the explicit user shell.
+- Terminal ownership is pinned to the creating browser client. The daemon streams no retained
+  scrollback, limits client input to 64 KiB/frame and terminal output to about 1 MiB/s
+  (dropping excess with a notice), and kills PTYs on owner disconnect and daemon stop.
 
 ## Credentials
 - The daemon never reads or forwards API keys. omp resolves them itself
@@ -54,3 +76,5 @@
 - Unknown command → error response with correlation id.
 - Worker crash → `worker.crashed` event; session resumable from JSONL.
 - Oversized RPC frame → chunk reassembly cap enforced (unit test in worker tests).
+- Terminal disabled guard, cwd-boundary escape rejection, and owner-disconnect reaping →
+  `terminal-manager.test.ts`, without requiring `node-pty`.

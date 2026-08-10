@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Menu, PanelRightOpen, X } from 'lucide-react';
+import { Menu, MessageSquareText, PanelRightOpen, Plus, SquareTerminal, X } from 'lucide-react';
 import type { SessionSummary } from '../../../daemon/src/protocol';
-import { daemonClient } from '../lib/client';
+import { daemonClient, daemonHealthUrl } from '../lib/client';
 import { useAppStore } from '../lib/store';
 import { Sidebar } from './Sidebar';
 import { Transcript } from './Transcript';
@@ -12,25 +12,58 @@ import { StatusBar } from './StatusBar';
 import { ApprovalDialog } from './ApprovalDialog';
 import { QuestionDialog } from './QuestionDialog';
 import { useOverlayFocus } from './dialog-utils';
+import { TerminalPane } from './TerminalPane';
+import { attachmentId, type AttachmentRange, type PendingAttachment } from '../lib/attachments';
+import { FilePreviewDialog } from './FilePreviewDialog';
 
-function FilesPanel({ workspaceId, initialPath }: { workspaceId?: string; initialPath?: string }) {
+type FilePreview = { path: string; content: string; truncated?: boolean; binary?: boolean; lineCount?: number };
+
+function readSavedWorkspace(): { root: string } | undefined {
+  try {
+    const saved = JSON.parse(localStorage.getItem('omp-webui.lastWorkspace') ?? '{}') as { root?: unknown };
+    return typeof saved.root === 'string' && saved.root ? { root: saved.root } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function FilesPanel({ workspaceId, initialPath, onAdd }: { workspaceId?: string; initialPath?: string; onAdd: (path: string, range?: AttachmentRange) => void }) {
   const [path, setPath] = useState(initialPath ?? '');
-  const [content, setContent] = useState('');
+  const [preview, setPreview] = useState<FilePreview>();
+  const [matches, setMatches] = useState<string[]>([]);
 
   useEffect(() => setPath(initialPath ?? ''), [initialPath]);
 
-  const read = () => workspaceId && daemonClient.command<{ content?: string }>('file.read', { workspaceId, path })
-    .then((value) => setContent(value.content ?? ''))
-    .catch(() => setContent('Could not read this file.'));
+  useEffect(() => {
+    if (!workspaceId || !path.trim()) {
+      setMatches([]);
+      return;
+    }
+    let active = true;
+    daemonClient.command<{ files: string[] }>('file.search', { workspaceId, query: path.trim() })
+      .then((value) => { if (active) setMatches((value.files ?? []).slice(0, 20)); })
+      .catch(() => { if (active) setMatches([]); });
+    return () => { active = false; };
+  }, [workspaceId, path]);
+
+  const read = (target = path) => workspaceId && target.trim() && daemonClient.command<FilePreview>('file.read', { workspaceId, path: target })
+    .then((value) => {
+      setPath(target);
+      setPreview(value);
+    })
+    .catch(() => setPreview({ path: target, content: 'Could not read this file.' }));
 
   return (
     <section className="panel" aria-label="Files">
       <header><h2>Files</h2></header>
       <div className="file-preview__input">
         <input aria-label="File path" value={path} onChange={(event) => setPath(event.target.value)} placeholder="src/app.ts" />
-        <button className="button button--quiet" onClick={read}>Open</button>
+        <button className="button button--quiet" onClick={() => void read()}>Open</button>
       </div>
-      {content ? <pre><code>{content}</code></pre> : <p className="empty-panel">Select a file to preview it.</p>}
+      {path && <div className="file-preview__row"><button className="file-preview__entry" onClick={() => read()}><code>{path}</code><span>Preview and choose lines</span></button><button type="button" className="icon-button" aria-label={`Add ${path} to conversation`} title="Add file to conversation" onClick={() => onAdd(path)}><Plus size={16} /></button></div>}
+      {matches.length > 0 && <ul className="file-preview__matches" aria-label="Matching files">{matches.map((match) => <li key={match}><div className="file-preview__row"><button className="file-preview__entry" onClick={() => read(match)}><code>{match}</code><span>Preview and choose lines</span></button><button type="button" className="icon-button" aria-label={`Add ${match} to conversation`} title="Add file to conversation" onClick={() => onAdd(match)}><Plus size={16} /></button></div></li>)}</ul>}
+      {!path && <p className="empty-panel">Enter a workspace path to preview it.</p>}
+      {preview && <FilePreviewDialog preview={preview} onClose={() => setPreview(undefined)} onAdd={(range) => { onAdd(preview.path, range); setPreview(undefined); }} />}
     </section>
   );
 }
@@ -42,7 +75,10 @@ export function AppShell() {
   const [drawer, setDrawer] = useState(false);
   const [tab, setTab] = useState<'files' | 'git' | 'plan'>('files');
   const [file, setFile] = useState('');
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [daemonVersion, setDaemonVersion] = useState('');
   const [announcement, setAnnouncement] = useState('');
+  const [surface, setSurface] = useState<'chat' | 'terminal'>('chat');
   const drawerTrigger = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
   const wasStreaming = useRef(false);
@@ -54,14 +90,20 @@ export function AppShell() {
     .then((response) => setSessions(response.sessions ?? []))
     .catch(() => setSessions([]));
 
-  const openSession = (sessionFile: string, workspaceId = state.activeWorkspaceId) => {
-    if (!workspaceId) return;
-    daemonClient.command<{ sessionId: string; sessionFile: string }>('session.open', { workspaceId, sessionFile })
-      .then((response) => {
+  const openSession = (sessionFile: string, workspaceId?: string) => {
+    // Workspace selection and "New session" can occur in the same React event
+    // turn. Read the store for the default so this call cannot retain the
+    // previous render's workspace id and silently leave the new session inactive.
+    const activeWorkspaceId = workspaceId ?? useAppStore.getState().activeWorkspaceId;
+    if (!activeWorkspaceId) return;
+    daemonClient.command<{ sessionId: string; sessionFile: string }>('session.open', { workspaceId: activeWorkspaceId, sessionFile })
+        .then(async (response) => {
         const session = { sessionId: response.sessionId, sessionFile: response.sessionFile };
         setActiveSession(session);
-        localStorage.setItem('omp-webui.activeSession', JSON.stringify({ workspaceId, sessionFile: response.sessionFile }));
-        void loadSessions(workspaceId);
+        localStorage.setItem('omp-webui.activeSession', JSON.stringify({ workspaceId: activeWorkspaceId, sessionFile: response.sessionFile }));
+        const selectedWorkspace = useAppStore.getState().workspaces.find((item) => item.id === activeWorkspaceId);
+        if (selectedWorkspace) localStorage.setItem('omp-webui.lastWorkspace', JSON.stringify({ root: selectedWorkspace.root }));
+        void loadSessions(activeWorkspaceId);
       })
       .catch(() => undefined);
   };
@@ -72,17 +114,35 @@ export function AppShell() {
       if (hydrated) return;
       hydrated = true;
       daemonClient.command<{ workspaces: typeof state.workspaces }>('workspace.list')
-        .then((response) => {
+        .then(async (response) => {
           const workspaces = response.workspaces ?? [];
-          setWorkspaces(workspaces);
+          let availableWorkspaces = workspaces;
+          const savedWorkspace = readSavedWorkspace();
+          let restoredWorkspace = savedWorkspace && availableWorkspaces.find((item) => item.root === savedWorkspace.root);
+          if (!restoredWorkspace && savedWorkspace?.root) {
+            try {
+              const restored = await daemonClient.command<{ workspace: typeof state.workspaces[number] }>('workspace.open', { root: savedWorkspace.root });
+              restoredWorkspace = restored.workspace;
+              availableWorkspaces = [restored.workspace, ...availableWorkspaces.filter((item) => item.id !== restored.workspace.id)];
+            } catch {
+              // The remembered directory may no longer exist or be permitted.
+            }
+          }
+          setWorkspaces(availableWorkspaces);
+          if (restoredWorkspace) {
+            useAppStore.setState({ activeWorkspaceId: restoredWorkspace.id });
+            void loadSessions(restoredWorkspace.id);
+          }
           const saved = localStorage.getItem('omp-webui.activeSession');
           if (!saved) return;
           try {
             const { workspaceId, sessionFile } = JSON.parse(saved) as { workspaceId?: string; sessionFile?: string };
-            if (workspaceId && sessionFile && workspaces.some((item) => item.id === workspaceId)) {
-              useAppStore.setState({ activeWorkspaceId: workspaceId });
-              void loadSessions(workspaceId);
-              openSession(sessionFile, workspaceId);
+            const matchingWorkspace = availableWorkspaces.find((item) => item.id === workspaceId)
+              ?? restoredWorkspace;
+            if (sessionFile && matchingWorkspace) {
+              useAppStore.setState({ activeWorkspaceId: matchingWorkspace.id });
+              void loadSessions(matchingWorkspace.id);
+              openSession(sessionFile, matchingWorkspace.id);
             }
           } catch {
             // Ignore a malformed local preference.
@@ -103,6 +163,15 @@ export function AppShell() {
       daemonClient.disconnect();
     };
   }, []);
+
+  useEffect(() => {
+    if (state.connection !== 'online') return;
+    let activeRequest = true;
+    fetch(daemonHealthUrl()).then((response) => response.ok ? response.json() as Promise<{ version?: unknown }> : null)
+      .then((health) => { if (activeRequest && typeof health?.version === 'string') setDaemonVersion(health.version); })
+      .catch(() => undefined);
+    return () => { activeRequest = false; };
+  }, [state.connection]);
 
   useEffect(() => {
     if (!state.activeSession) return;
@@ -154,6 +223,7 @@ export function AppShell() {
       activeWorkspaceId: nextWorkspace.id,
       workspaces: current.some((item) => item.id === nextWorkspace.id) ? current : [nextWorkspace, ...current],
     });
+    localStorage.setItem('omp-webui.lastWorkspace', JSON.stringify({ root: nextWorkspace.root }));
     void loadSessions(nextWorkspace.id);
   };
 
@@ -190,9 +260,15 @@ export function AppShell() {
             <strong>{state.sessions.find((item) => item.sessionId === active?.sessionId)?.title ?? 'OMP'}</strong>
             <span>{workspace?.root ?? 'Open a workspace to begin'}</span>
           </div>
+          <div className="surface-toggle" role="group" aria-label="Main view">
+            <button className={surface === 'chat' ? 'is-active' : ''} aria-pressed={surface === 'chat'} onClick={() => setSurface('chat')}><MessageSquareText size={15} />Chat</button>
+            <button className={surface === 'terminal' ? 'is-active' : ''} aria-pressed={surface === 'terminal'} onClick={() => setSurface('terminal')}><SquareTerminal size={16} />Terminal</button>
+          </div>
           <button ref={drawerTrigger} className="icon-button" aria-label="Toggle workspace drawer" aria-expanded={drawer} onClick={() => setDrawer((open) => !open)}><PanelRightOpen size={19} /></button>
         </header>
-        <div id="conversation" className="conversation">
+        <div className="main-surface">
+          <TerminalPane workspaceId={state.activeWorkspaceId} workspaceRoot={workspace?.root} client={daemonClient} visible={surface === 'terminal'} />
+          <div id="conversation" className={`conversation ${surface === 'chat' ? '' : 'is-hidden'}`}>
           <Transcript
             items={state.transcript}
             cards={state.toolCards}
@@ -222,7 +298,10 @@ export function AppShell() {
             contextPercent={state.sessionState.contextUsage?.percent}
             client={daemonClient}
             onDraft={setDraft}
+            attachments={attachments}
+            onAttachments={setAttachments}
           />
+          </div>
         </div>
         <StatusBar
           connection={state.connection}
@@ -231,6 +310,7 @@ export function AppShell() {
           thinking={state.sessionState.thinkingLevel}
           context={state.sessionState.contextUsage?.percent}
           tokensPerSecond={state.sessionState.tokensPerSecond}
+          version={daemonVersion}
         />
       </section>
       <aside
@@ -260,7 +340,7 @@ export function AppShell() {
           <button className="icon-button" aria-label="Close workspace drawer" onClick={closeDrawer}><X size={18} /></button>
         </header>
         <div id={`workspace-panel-${tab}`} role="tabpanel" aria-labelledby={`workspace-tab-${tab}`}>
-          {tab === 'files' && <FilesPanel workspaceId={state.activeWorkspaceId} initialPath={file} />}
+          {tab === 'files' && <FilesPanel workspaceId={state.activeWorkspaceId} initialPath={file} onAdd={(path, range) => setAttachments((current) => [...current, { id: attachmentId(), name: path.split('/').at(-1) ?? path, path, range }])} />}
           {tab === 'git' && <GitPanel workspaceId={state.activeWorkspaceId} client={daemonClient} />}
           {tab === 'plan' && <PlanPanel todos={state.sessionState.todos} />}
         </div>

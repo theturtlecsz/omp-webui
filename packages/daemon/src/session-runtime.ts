@@ -304,6 +304,7 @@ export function normalizeMessage(msg: unknown): Partial<TranscriptItem> | null {
     parts.push(content);
   }
   return {
+    entryId: typeof m.id === "string" ? m.id : undefined,
     role,
     text: parts.join(""),
     kind: role === "user" ? "user" : "assistant",

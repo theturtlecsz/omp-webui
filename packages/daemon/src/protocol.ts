@@ -54,11 +54,15 @@ export type ServerEventType =
   | "todos.updated"
   | "queue.updated"
   | "git.updated"
+  | "terminal.output"
+  | "terminal.exit"
   | "replay.completed"
   | "response"; // command correlation responses
 
 export interface TranscriptItem {
   id: string;
+  /** Authoritative JSONL entry id when the item was rebuilt from a session file. */
+  entryId?: string;
   kind: "user" | "assistant" | "tool" | "status" | "error";
   role?: string;
   text: string;
@@ -85,7 +89,14 @@ export interface SessionSummary {
 }
 
 export interface SessionStatePayload {
-  model?: { provider: string; id: string; name?: string };
+  model?: {
+    provider: string;
+    id: string;
+    name?: string;
+    /** OMP model metadata is provider-defined; retained for capability-aware UI hints. */
+    capabilities?: unknown;
+    input?: unknown;
+  };
   thinkingLevel?: string;
   isStreaming: boolean;
   isCompacting?: boolean;
@@ -108,6 +119,7 @@ export type ClientCommandType =
   | "session.open"
   | "session.archive"
   | "session.fork"
+  | "session.reask"
   | "prompt.submit"
   | "prompt.queue"
   | "prompt.steer"
@@ -116,12 +128,18 @@ export type ClientCommandType =
   | "question.respond"
   | "file.search"
   | "file.read"
+  | "file.upload"
   | "git.status"
   | "git.diff"
   | "settings.update"
   | "model.set"
   | "model.list"
-  | "thinking.set";
+  | "thinking.set"
+  | "terminal.create"
+  | "terminal.input"
+  | "terminal.resize"
+  | "terminal.kill"
+  | "terminal.commands";
 
 export interface ClientCommand<P = unknown> {
   protocolVersion: number;

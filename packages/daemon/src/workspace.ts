@@ -71,18 +71,50 @@ export class PathEscapeError extends Error {
   }
 }
 
-const MAX_FILE_BYTES = 2 * 1024 * 1024;
+const MAX_FILE_BYTES = 512 * 1024;
 const MAX_SEARCH_RESULTS = 200;
 
-export function readWorkspaceFile(boundary: WorkspaceBoundary, userPath: string): { path: string; content: string; truncated: boolean } {
+export interface FileReadRange { start?: number; end?: number }
+export interface WorkspaceFileRead {
+  path: string;
+  content: string;
+  truncated: boolean;
+  binary?: boolean;
+  lineCount?: number;
+  range?: { start: number; end: number };
+}
+
+/**
+ * Preview-oriented text read. The byte cap makes a dialog safe to render and binary
+ * files are deliberately not decoded into replacement-character noise.
+ */
+export function readWorkspaceFile(boundary: WorkspaceBoundary, userPath: string, requested: FileReadRange = {}): WorkspaceFileRead {
   const full = boundary.resolveContained(userPath);
   const stat = statSync(full);
   if (!stat.isFile()) throw new Error(`not a file: ${userPath}`);
-  if (stat.size > MAX_FILE_BYTES) {
-    const buf = readFileSync(full);
-    return { path: boundary.relative(full), content: buf.subarray(0, MAX_FILE_BYTES).toString("utf8"), truncated: true };
+  const buf = readFileSync(full);
+  const preview = buf.subarray(0, MAX_FILE_BYTES);
+  const text = preview.toString("utf8");
+  // A NUL or an invalid UTF-8 round trip makes this unsuitable for a code preview
+  // and for automatic prompt inlining.
+  if (preview.includes(0) || !Buffer.from(text, "utf8").equals(preview)) {
+    return { path: boundary.relative(full), content: "", truncated: stat.size > MAX_FILE_BYTES, binary: true };
   }
-  return { path: boundary.relative(full), content: readFileSync(full, "utf8"), truncated: false };
+  const lines = text.split("\n");
+  const start = Number.isInteger(requested.start) && requested.start! > 0 ? requested.start! : undefined;
+  const end = Number.isInteger(requested.end) && requested.end! >= (start ?? 1) ? requested.end! : undefined;
+  if (start !== undefined || end !== undefined) {
+    const first = Math.min(lines.length, start ?? 1);
+    const last = Math.min(lines.length, end ?? lines.length);
+    return {
+      path: boundary.relative(full),
+      content: lines.slice(first - 1, last).join("\n"),
+      truncated: stat.size > MAX_FILE_BYTES,
+      lineCount: lines.length,
+      range: { start: first, end: last },
+    };
+  }
+  return { path: boundary.relative(full), content: text, truncated: stat.size > MAX_FILE_BYTES, lineCount: lines.length };
 }
 
 export function searchWorkspaceFiles(boundary: WorkspaceBoundary, query: string): string[] {

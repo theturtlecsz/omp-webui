@@ -1,5 +1,6 @@
 {
   "name": "daemon",
+  "version": "0.1.0",
   "module": "index.ts",
   "type": "module",
   "private": true,
@@ -13,5 +14,8 @@
   "dependencies": {
     "ws": "^8.21.3",
     "zod": "^4.4.3"
+  },
+  "optionalDependencies": {
+    "node-pty": "1.0.0"
   }
 }

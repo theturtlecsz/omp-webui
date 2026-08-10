@@ -76,3 +76,25 @@ Status: accepted
 Decision: rpc_chunk reassembly bounded by count (8192), concurrent assemblies (16),
 aggregate bytes (64 MiB), and TTL (60 s); raw stdout lines over 8 MiB dropped; all frame
 handling wrapped in an error boundary that drops the frame instead of crashing the daemon.
+
+## ADR-0014: Edit-and-re-ask creates a fork
+Date: 2026-08-10
+Status: accepted
+Decision: editing a user prompt sends `session.reask`, which copies the authoritative
+session JSONL through that prompt's entry id, titles the new session `Fork of <title>`,
+activates it, and submits the replacement prompt there.
+Reasoning: omp JSONL is authoritative and immutable from the WebUI's perspective. A fork
+preserves the original conversation, makes the alternate path durable and resumable, and
+uses the existing session-worker lifecycle rather than inventing in-place history edits.
+Consequences: user transcript items expose their JSONL `entryId`; the daemon journals and
+broadcasts the active fork switch to all attached browsers.
+
+## ADR-0015: Transcript collapsing is render-only
+Date: 2026-08-10
+Status: accepted
+Decision: long-chat collapsing is derived only in the transcript component. The reducer,
+snapshots, event journal, and JSONL reconstruction retain the complete ordered transcript.
+Reasoning: presentation compaction must not compromise replay correctness, event
+idempotency, session forks, accessibility, or the ability to expand historic content.
+Consequences: only the rendered older rows become summaries; the latest 15 messages always
+remain fully rendered and no transcript data is discarded.

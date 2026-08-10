@@ -5,15 +5,24 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "node:crypto"; 
-import { readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
-import { join, extname, resolve, relative } from "node:path";
+import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, realpathSync } from "node:fs";
+import { join, extname, resolve, relative, basename } from "node:path";
 import { Store } from "./store.js";
 import { OmpWorker } from "./worker.js";
 import { SessionRuntime, normalizeMessage } from "./session-runtime.js";
 import { WorkspaceBoundary, PathEscapeError, readWorkspaceFile, searchWorkspaceFiles, gitStatus, gitDiff } from "./workspace.js";
 import { listSessionFiles, readSessionEntries, sessionDirForCwd } from "./session-files.js";
-import { realpathSync } from "node:fs"; // session containment
 import { PROTOCOL_VERSION, type ClientCommand, type Envelope } from "./protocol.js";
+import { TerminalManager } from "./terminal-manager.js";
+
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+const DEFAULT_INLINE_FILE_MAX = 12 * 1024;
+const daemonPackage = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version?: unknown };
+// The package is private and may omit a version during development. Keep the
+// health contract stable for the WebUI rather than returning an undefined field.
+const DAEMON_VERSION = typeof daemonPackage.version === "string" ? daemonPackage.version : "0.1.0";
+type PromptAttachment = { path?: unknown; name?: unknown; data?: unknown; start?: unknown; end?: unknown };
+type PromptImage = { data?: unknown; mimeType?: unknown };
 
 export interface DaemonOptions {
   host?: string;
@@ -27,6 +36,8 @@ export interface DaemonOptions {
   dbPath?: string;
   /** omp --approval-mode value for spawned workers (default "write": exec tools prompt). */
   approvalMode?: string;
+  /** Enables the isolated user-terminal subsystem. Off by default. */
+  terminal?: boolean;
 }
 
 interface Client {
@@ -57,6 +68,7 @@ export class Daemon {
   #http: ReturnType<typeof createServer> | null = null;
   #wss: WebSocketServer | null = null;
   #idleTimer: NodeJS.Timeout | null = null;
+  #terminals: TerminalManager;
 
   constructor(opts: DaemonOptions = {}) {
     const host = opts.host ?? "127.0.0.1";
@@ -74,8 +86,10 @@ export class Daemon {
       workerEnv: opts.workerEnv ?? {},
       workerIdleMs: opts.workerIdleMs ?? 10 * 60 * 1000,
       approvalMode: opts.approvalMode ?? "write",
+      terminal: opts.terminal ?? false,
     };
     this.store = new Store(opts.dbPath);
+    this.#terminals = new TerminalManager({ enabled: opts.terminal === true });
   }
 
   get port(): number {
@@ -96,6 +110,7 @@ export class Daemon {
 
   async stop(): Promise<void> {
     if (this.#idleTimer) clearInterval(this.#idleTimer);
+    this.#terminals.stop();
     for (const rt of this.#runtimes.values()) {
       if (rt.worker) await rt.worker.stop().catch(() => {});
       rt.dispose();
@@ -120,7 +135,7 @@ export class Daemon {
 
     if (url.pathname === "/api/health") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, protocolVersion: PROTOCOL_VERSION, pid: process.pid }));
+      res.end(JSON.stringify({ ok: true, version: DAEMON_VERSION, protocolVersion: PROTOCOL_VERSION, pid: process.pid }));
       return;
     }
     if (url.pathname === "/api/artifact") {
@@ -219,7 +234,7 @@ export class Daemon {
     this.#clients.add(client);
     ws.on("pong", () => { client.alive = true; });
     ws.on("message", (data) => this.#onClientMessage(client, data));
-    ws.on("close", () => { this.#clients.delete(client); });
+    ws.on("close", () => { this.#terminals.disconnect(client.id); this.#clients.delete(client); });
     this.#send(client, {
       type: "connection.ready",
       payload: { clientId: client.id, protocolVersion: PROTOCOL_VERSION },
@@ -271,6 +286,13 @@ export class Daemon {
 
   async #dispatch(client: Client, cmd: ClientCommand): Promise<void> {
     const p = (cmd.payload ?? {}) as Record<string, unknown>;
+    if (cmd.type.startsWith("terminal.")) {
+      const payload = await this.#terminals.dispatch(client.id, cmd.type, p, (workspaceId) => this.#requireBoundary(workspaceId), (event) => {
+        this.#send(client, event);
+      });
+      this.#send(client, { type: "response", correlationId: cmd.id, payload });
+      return;
+    }
     switch (cmd.type) {
       case "connection.resume": {
         const sessionId = String(p.sessionId ?? "");
@@ -330,14 +352,82 @@ export class Daemon {
         this.#broadcast({ type: "session.forked", payload: { from: sessionFile, to: newFile } });
         return;
       }
+      case "session.reask": {
+        const requestedSession = String(p.sessionFile ?? cmd.sessionId ?? "");
+        const source = this.store.getSessionByFile(requestedSession)
+          ?? this.store.listSessions(undefined, true).find((session) => session.sessionId === requestedSession);
+        if (!source) throw new Error("unknown session; open it first");
+        this.#assertKnownSessionFile(source.sessionFile);
+        const entryId = String(p.entryId ?? "");
+        const message = String(p.message ?? "");
+        if (!entryId) throw new Error("session.reask requires payload.entryId");
+        if (!message.trim()) throw new Error("empty prompt");
+
+        const boundary = this.#requireBoundary(source.workspaceId);
+        const entries = await this.#readEntriesThrough(source.sessionFile, entryId);
+        const hasEntry = entries.some((entry) => sessionEntryMatches(entry, entryId));
+        if (!hasEntry) throw new Error("session.reask entryId was not found in the source session");
+        const originalTitle = source.title || buildSnapshot(source.sessionFile).title || "(untitled session)";
+        const forkTitle = `Fork of ${originalTitle}`;
+        const newFile = forkSessionFile(source.sessionFile, entries, entryId, forkTitle);
+        const forkSnapshot = buildSnapshot(newFile);
+        if (!forkSnapshot.sessionId) throw new Error("forked session is missing a session id");
+        const now = new Date().toISOString();
+        this.store.upsertSession({
+          sessionId: forkSnapshot.sessionId,
+          sessionFile: newFile,
+          workspaceId: source.workspaceId,
+          title: forkTitle,
+          createdAt: now,
+          updatedAt: now,
+          messageCount: forkSnapshot.items.filter((item) => (item as { kind?: string }).kind === "user").length,
+        });
+        const rt = await this.#ensureRuntime(boundary, newFile, source.workspaceId);
+        const activeSessionId = rt.sessionId || forkSnapshot.sessionId;
+        const payload = {
+          from: source.sessionFile,
+          to: newFile,
+          workspaceId: source.workspaceId,
+          sessionId: activeSessionId,
+          sessionFile: newFile,
+          title: forkTitle,
+          activate: true,
+        };
+        const eventId = `ev_${randomUUID()}`;
+        const sequence = this.store.appendEvent(activeSessionId, eventId, "session.forked", payload).sequence;
+        this.#broadcast({ type: "session.forked", sessionId: activeSessionId, eventId, sequence, payload });
+        void rt.worker!.command({ type: "prompt", message }, 120_000)
+          .then(() => rt.refreshState())
+          .catch((err) => this.#broadcast({ type: "message.failed", sessionId: activeSessionId, payload: { error: String(err.message ?? err) } }));
+        this.#send(client, {
+          type: "response",
+          correlationId: cmd.id,
+          sessionId: activeSessionId,
+          payload: { accepted: true, sessionId: activeSessionId, sessionFile: newFile, title: forkTitle },
+        });
+        return;
+      }
       case "prompt.submit":
       case "prompt.queue":
       case "prompt.steer": {
         const rt = this.#requireRuntime(cmd);
-        const message = String(p.message ?? "");
+        const workspaceId = p.workspaceId ? String(p.workspaceId) : this.store.getSessionByFile(rt.sessionFile ?? "")?.workspaceId;
+        const boundary = workspaceId ? this.#requireBoundary(workspaceId) : undefined;
+        const message = this.#messageWithAttachments(
+          String(p.message ?? ""),
+          Array.isArray(p.attachments) ? p.attachments as PromptAttachment[] : [],
+          boundary,
+          workspaceId,
+        );
         if (!message.trim()) throw new Error("empty prompt");
+        const images = this.#promptImages(Array.isArray(p.images) ? p.images as PromptImage[] : []);
         const streamingBehavior = cmd.type === "prompt.steer" ? "steer" : cmd.type === "prompt.queue" ? "followUp" : (p.streamingBehavior as string | undefined);
-        void rt.worker!.command({ type: "prompt", message, ...(streamingBehavior ? { streamingBehavior } : {}) }, 120_000)
+        void rt.worker!.command({
+          type: "prompt",
+          message,
+          ...(images.length ? { images } : {}),
+          ...(streamingBehavior ? { streamingBehavior } : {}),
+        }, 120_000)
           .then(() => rt.refreshState())
           .catch((err) => this.#broadcast({ type: "message.failed", sessionId: rt.sessionId || undefined, payload: { error: String(err.message ?? err) } }));
         this.#send(client, { type: "response", correlationId: cmd.id, payload: { accepted: true } });
@@ -370,7 +460,23 @@ export class Daemon {
       }
       case "file.read": {
         const boundary = this.#requireBoundary(String(p.workspaceId ?? ""));
-        this.#send(client, { type: "response", correlationId: cmd.id, payload: readWorkspaceFile(boundary, String(p.path ?? "")) });
+        const start = Number(p.start);
+        const end = Number(p.end);
+        this.#send(client, {
+          type: "response",
+          correlationId: cmd.id,
+          payload: readWorkspaceFile(boundary, String(p.path ?? ""), {
+            ...(Number.isInteger(start) ? { start } : {}),
+            ...(Number.isInteger(end) ? { end } : {}),
+          }),
+        });
+        return;
+      }
+      case "file.upload": {
+        const workspaceId = String(p.workspaceId ?? "");
+        this.#requireBoundary(workspaceId);
+        const upload = this.#storeUpload(workspaceId, String(p.name ?? ""), String(p.data ?? ""));
+        this.#send(client, { type: "response", correlationId: cmd.id, payload: upload });
         return;
       }
       case "git.status": {
@@ -636,6 +742,16 @@ export class Daemon {
     throw new PathEscapeError(sessionFile, "session file is not inside an approved workspace session directory");
   }
 
+  /** omp can emit a terminal message frame shortly before its JSONL flush completes. */
+  async #readEntriesThrough(sessionFile: string, entryId: string): Promise<Record<string, unknown>[]> {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const entries = readSessionEntries(sessionFile);
+      if (entries.some((entry) => sessionEntryMatches(entry, entryId))) return entries;
+      await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, 20));
+    }
+    return readSessionEntries(sessionFile);
+  }
+
   #assertSessionWithinWorkspace(boundary: WorkspaceBoundary, sessionFile: string): void {
     const dir = sessionDirForCwd(boundary.root);
     let realDir: string;
@@ -646,14 +762,18 @@ export class Daemon {
       realDir = resolve(dir);
     }
     const target = resolve(sessionFile);
-    const rel = relative(realDir, target);
-    if (!rel || rel.startsWith("..") || rel.includes("/") || !target.endsWith(".jsonl")) {
+    // Compare canonical paths whenever the session file already exists. The
+    // OMP session root can itself be reached through a symlink (for example
+    // when $HOME is mounted), so mixing a real session directory with a
+    // lexical child path would falsely reject legitimate files.
+    const canonicalTarget = existsSync(target) ? realpathSync(target) : target;
+    const rel = relative(realDir, canonicalTarget);
+    if (!rel || rel.startsWith("..") || rel.includes("/") || !canonicalTarget.endsWith(".jsonl")) {
       throw new PathEscapeError(sessionFile, "session file is outside this workspace's session directory");
     }
     // If the file already exists, symlinks must resolve inside the dir too.
     if (existsSync(target)) {
-      const canonical = realpathSync(target);
-      const realRel = relative(realDir, canonical);
+      const realRel = relative(realDir, canonicalTarget);
       if (!realRel || realRel.startsWith("..") || realRel.includes("/")) {
         throw new PathEscapeError(sessionFile, "session file symlink escapes the workspace session directory");
       }
@@ -706,6 +826,131 @@ export class Daemon {
     if (!rt || !rt.worker || rt.worker.state !== "ready") throw new Error("session is not active; open it first");
     rt.lastActivity = Date.now();
     return rt;
+  }
+
+  #inlineFileMax(): number {
+    const parsed = Number(process.env.OMP_WEB_INLINE_FILE_MAX ?? DEFAULT_INLINE_FILE_MAX);
+    return Number.isFinite(parsed) && parsed >= 0 ? Math.min(Math.floor(parsed), MAX_UPLOAD_BYTES) : DEFAULT_INLINE_FILE_MAX;
+  }
+
+  #uploadsRoot(workspaceId: string): string {
+    // IDs are database-owned, but make the directory component harmless even if a
+    // future store implementation changes that invariant.
+    const safeId = workspaceId.replace(/[^A-Za-z0-9_-]/g, "_");
+    const root = resolve(process.env.HOME ?? process.env.USERPROFILE ?? ".", ".omp-webui", "uploads");
+    mkdirSync(root, { recursive: true, mode: 0o700 });
+    const realRoot = realpathSync(root);
+    const target = resolve(realRoot, safeId);
+    if (relative(realRoot, target).startsWith("..") || target === realRoot) throw new PathEscapeError("invalid upload workspace");
+    mkdirSync(target, { recursive: true, mode: 0o700 });
+    const realTarget = realpathSync(target);
+    if (relative(realRoot, realTarget).startsWith("..") || realTarget === realRoot) throw new PathEscapeError("upload directory escapes root");
+    return realTarget;
+  }
+
+  #safeUploadName(name: string): string {
+    const cleaned = basename(name).replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\.+/, "");
+    return cleaned.slice(0, 180) || "attachment";
+  }
+
+  #decodeBase64(data: string, limit = MAX_UPLOAD_BYTES): Buffer {
+    const normalized = data.replace(/\s/g, "");
+    if (!normalized || normalized.length > Math.ceil(limit * 4 / 3) + 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(normalized)) {
+      throw Object.assign(new Error("invalid or oversized base64 upload"), { code: "upload_invalid" });
+    }
+    const decoded = Buffer.from(normalized, "base64");
+    if (!decoded.length || decoded.length > limit || decoded.toString("base64").replace(/=+$/, "") !== normalized.replace(/=+$/, "")) {
+      throw Object.assign(new Error("invalid or oversized base64 upload"), { code: "upload_invalid" });
+    }
+    return decoded;
+  }
+
+  #storeUpload(workspaceId: string, name: string, data: string): { path: string; name: string; size: number } {
+    const bytes = this.#decodeBase64(data);
+    const root = this.#uploadsRoot(workspaceId);
+    const safeName = this.#safeUploadName(name);
+    const target = resolve(root, `${randomUUID()}-${safeName}`);
+    if (relative(root, target).startsWith("..")) throw new PathEscapeError("upload target escapes root");
+    writeFileSync(target, bytes, { mode: 0o600, flag: "wx" });
+    const realTarget = realpathSync(target);
+    if (relative(root, realTarget).startsWith("..")) throw new PathEscapeError("upload target escapes root");
+    return { path: realTarget, name: safeName, size: bytes.length };
+  }
+
+  #attachmentPath(attachment: PromptAttachment, boundary: WorkspaceBoundary | undefined, workspaceId: string | undefined): { fullPath: string; displayPath: string; uploaded: boolean } {
+    if (typeof attachment.data === "string" && typeof attachment.name === "string") {
+      if (!workspaceId) throw new Error("uploads require an active workspace");
+      const upload = this.#storeUpload(workspaceId, attachment.name, attachment.data);
+      return { fullPath: upload.path, displayPath: upload.path, uploaded: true };
+    }
+    if (typeof attachment.path !== "string" || !attachment.path) throw new Error("attachment requires path or name/data");
+    if (boundary) {
+      try {
+        const fullPath = boundary.resolveContained(attachment.path);
+        return { fullPath, displayPath: boundary.relative(fullPath), uploaded: false };
+      } catch (err) {
+        // A local file-picker upload is stored outside the workspace but remains
+        // usable only in the same workspace's private upload directory.
+        if (!workspaceId) throw err;
+        const root = this.#uploadsRoot(workspaceId);
+        const fullPath = realpathSync(attachment.path);
+        const uploadRelative = relative(root, fullPath);
+        if (!uploadRelative || uploadRelative.startsWith("..") || uploadRelative.includes("../")) throw new PathEscapeError("upload attachment escapes root");
+        return { fullPath, displayPath: fullPath, uploaded: true };
+      }
+    }
+    throw new Error("attachments require an active workspace");
+  }
+
+  #messageWithAttachments(message: string, attachments: PromptAttachment[], boundary: WorkspaceBoundary | undefined, workspaceId: string | undefined): string {
+    if (!attachments.length) return message;
+    const blocks: string[] = [];
+    for (const attachment of attachments.slice(0, 32)) {
+      const resolved = this.#attachmentPath(attachment, boundary, workspaceId);
+      const { fullPath } = resolved;
+      const stat = statSync(fullPath);
+      if (!stat.isFile()) throw new Error(`not a file attachment: ${String(attachment.path ?? attachment.name)}`);
+      const displayPath = resolved.displayPath;
+      const escapedPath = displayPath.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+      const start = Number(attachment.start);
+      const end = Number(attachment.end);
+      const hasRange = Number.isInteger(start) && Number.isInteger(end) && start > 0 && end >= start;
+      const read = resolved.uploaded
+        ? this.#readUploadedText(fullPath, hasRange ? { start, end } : {})
+        : readWorkspaceFile(boundary!, fullPath, hasRange ? { start, end } : {});
+      const canInline = !read.binary && (hasRange ? Buffer.byteLength(read.content, "utf8") <= this.#inlineFileMax() : stat.size <= this.#inlineFileMax());
+      if (canInline) {
+        const range = read.range;
+        blocks.push(`<file path="${escapedPath}"${range ? ` lines="${range.start}-${range.end}"` : ""}>\n${read.content}\n</file>`);
+      } else {
+        blocks.push(`File attachment: ${displayPath}${hasRange ? ` (lines ${start}-${end})` : ""}`);
+      }
+    }
+    return `${message}${message && blocks.length ? "\n\n" : ""}${blocks.join("\n\n")}`;
+  }
+
+  #readUploadedText(path: string, requested: { start?: number; end?: number }): { content: string; binary?: boolean; range?: { start: number; end: number } } {
+    const bytes = readFileSync(path);
+    const text = bytes.toString("utf8");
+    if (bytes.includes(0) || !Buffer.from(text, "utf8").equals(bytes)) return { content: "", binary: true };
+    const lines = text.split("\n");
+    const start = requested.start;
+    const end = requested.end;
+    if (start !== undefined || end !== undefined) {
+      const first = Math.min(lines.length, start ?? 1);
+      const last = Math.min(lines.length, end ?? lines.length);
+      return { content: lines.slice(first - 1, last).join("\n"), range: { start: first, end: last } };
+    }
+    return { content: text };
+  }
+
+  #promptImages(images: PromptImage[]): Array<{ type: "image"; data: string; mimeType: string }> {
+    return images.slice(0, 12).map((image) => {
+      const mimeType = String(image.mimeType ?? "");
+      if (!/^image\/(?:png|jpe?g|webp|gif)$/i.test(mimeType)) throw new Error("unsupported image type");
+      const bytes = this.#decodeBase64(String(image.data ?? ""));
+      return { type: "image" as const, data: bytes.toString("base64"), mimeType };
+    });
   }
 
   /** Test hook: iterate live runtimes (fault injection). */
@@ -768,6 +1013,7 @@ export function buildSnapshot(sessionFile: string) {
         if (msg?.text) {
           items.push({
             id: String(e.id ?? `m_${items.length}`),
+            entryId: typeof e.id === "string" ? e.id : undefined,
             kind: "assistant", role: "assistant", text: msg.text, timestamp: msg.timestamp,
           });
         }
@@ -808,6 +1054,7 @@ export function buildSnapshot(sessionFile: string) {
         if (msg && (msg.text || msg.role)) {
           items.push({
             id: String(e.id ?? `m_${items.length}`),
+            entryId: typeof e.id === "string" ? e.id : undefined,
             kind: msg.kind ?? "assistant",
             role: msg.role,
             text: msg.text ?? "",
@@ -821,25 +1068,40 @@ export function buildSnapshot(sessionFile: string) {
 }
 
 /** Create a forked session file (copy entries up to entryId, new session id). */
-export function forkSessionFile(sourceFile: string, entries: Record<string, unknown>[], upToEntryId?: string): string {
+export function forkSessionFile(sourceFile: string, entries: Record<string, unknown>[], upToEntryId?: string, forkTitle?: string): string {
   const newId = randomUUID();
   const ts = new Date().toISOString().replace(/[:.]/g, "-").replace("Z", "Z");
   const dir = join(sourceFile, "..");
   const newFile = join(dir, `${ts}_${newId}.jsonl`);
   const lines: string[] = [];
   let copied = 0;
+  let wroteForkTitle = false;
   for (const e of entries) {
     if (e.type === "session") {
       lines.push(JSON.stringify({ ...e, id: newId, parentSession: sourceFile, timestamp: new Date().toISOString() }));
       continue;
     }
-    lines.push(JSON.stringify(e));
+    if (e.type === "title" && forkTitle) wroteForkTitle = true;
+    lines.push(JSON.stringify(e.type === "title" && forkTitle ? { ...e, title: forkTitle } : e));
     copied++;
     const message = e.message as Record<string, unknown> | undefined;
     const role = typeof message?.role === "string" ? message.role : "assistant";
     const timestamp = typeof message?.timestamp === "number" ? message.timestamp : undefined;
     if (upToEntryId && (e.id === upToEntryId || (timestamp !== undefined && `${role}_${timestamp}` === upToEntryId))) break;
   }
+  // Fresh omp sessions do not necessarily contain a title record. Include one in
+  // the fork itself so the requested name survives a daemon restart and disk scan.
+  if (forkTitle && !wroteForkTitle) {
+    lines.push(JSON.stringify({ type: "title", title: forkTitle, timestamp: new Date().toISOString() }));
+  }
   writeFileSync(newFile, lines.join("\n") + "\n");
   return newFile;
+}
+
+function sessionEntryMatches(entry: Record<string, unknown>, entryId: string): boolean {
+  if (entry.id === entryId) return true;
+  const message = entry.message as Record<string, unknown> | undefined;
+  const role = typeof message?.role === "string" ? message.role : "assistant";
+  const timestamp = typeof message?.timestamp === "number" ? message.timestamp : undefined;
+  return timestamp !== undefined && `${role}_${timestamp}` === entryId;
 }

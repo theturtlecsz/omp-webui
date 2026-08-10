@@ -90,6 +90,7 @@ describe("fault injection", () => {
     // HTTP with bearer -> 200
     const res200 = await fetch(`http://127.0.0.1:${d.port}/api/health`, { headers: { authorization: "Bearer secret-token" } });
     expect(res200.status).toBe(200);
+    expect((await res200.json() as { version?: unknown }).version).toBe("0.1.0");
     await d.stop();
   });
 

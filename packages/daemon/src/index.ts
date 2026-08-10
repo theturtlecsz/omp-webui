@@ -35,6 +35,7 @@ const daemon = new Daemon({
   webDistDir: typeof args["web-dist"] === "string" ? args["web-dist"] : undefined,
   allowedOrigins: Array.isArray(args.origin) ? args.origin : undefined,
   approvalMode: typeof args["approval-mode"] === "string" ? args["approval-mode"] : undefined,
+  terminal: args.terminal === true,
 });
 
 await daemon.start();

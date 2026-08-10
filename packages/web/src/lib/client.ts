@@ -4,6 +4,13 @@ type WebSocketLike={readyState:number; send(data:string):void; close():void; ono
 type Pending={resolve:(v:unknown)=>void;reject:(e:Error)=>void;timer:ReturnType<typeof setTimeout>};
 const id=()=>globalThis.crypto?.randomUUID?.() ?? `c_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 export function daemonUrl():string { const u=new URL(window.location.href); return u.searchParams.get('daemon') ?? localStorage.getItem('omp-webui.daemon') ?? `${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`; }
+export function daemonHealthUrl(): string {
+  const ws = new URL(daemonUrl());
+  ws.protocol = ws.protocol === 'wss:' ? 'https:' : 'http:';
+  ws.pathname = '/api/health';
+  ws.search = '';
+  return ws.toString();
+}
 export class DaemonClient { private ws?:WebSocketLike; private pending=new Map<string,Pending>(); private handlers=new Set<(e:Envelope)=>void>(); private stateHandlers=new Set<(s:ConnectionState)=>void>(); private retries=0; private stopped=false; private reconnectTimer?:ReturnType<typeof setTimeout>; private sequences=new Map<string,number>(); private active?:{sessionId:string;sessionFile?:string}; constructor(private url=daemonUrl(),private factory:(url:string)=>WebSocketLike=(url)=>new WebSocket(url)){ }
  get connectionState():ConnectionState{return this.ws?.readyState===1?'online':this.retries?'reconnecting':'offline'}; onEvent(handler:(e:Envelope)=>void){this.handlers.add(handler);return()=>this.handlers.delete(handler)}; onState(handler:(s:ConnectionState)=>void){this.stateHandlers.add(handler);return()=>this.stateHandlers.delete(handler)}; private announce(s:ConnectionState){this.stateHandlers.forEach(h=>h(s))}; connect(){if(this.ws && (this.ws.readyState===0||this.ws.readyState===1))return;this.stopped=false;this.announce(this.retries?'reconnecting':'connecting'); const ws=this.ws=this.factory(this.url);ws.onopen=()=>{this.retries=0;this.announce('online');if(this.active)this.command('connection.resume',{sessionId:this.active.sessionId,afterSequence:this.sequences.get(this.active.sessionId)??0},this.active.sessionId).catch(()=>{});};ws.onmessage=(msg)=>this.receive(msg.data);ws.onerror=()=>undefined;ws.onclose=()=>{if(this.ws===ws)this.ws=undefined;if(!this.stopped)this.schedule();};}
  disconnect(){this.stopped=true;clearTimeout(this.reconnectTimer);this.ws?.close();this.ws=undefined;this.announce('offline');for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(new Error('Connection closed'));}this.pending.clear();}

@@ -35,12 +35,17 @@ Canonical type source: `packages/daemon/src/protocol.ts`.
 `connection.resume {sessionId, afterSequence}` · `workspace.list` · `workspace.open {root}` ·
 `session.list {workspaceId?, query?, includeArchived?}` · `session.create {workspaceId}` ·
 `session.open {workspaceId, sessionFile}` · `session.archive {sessionId, archived}` ·
-`session.fork {sessionFile, entryId?}` · `prompt.submit {message, streamingBehavior?}` ·
-`prompt.queue {message}` (followUp) · `prompt.steer {message}` · `prompt.abort` ·
+`session.fork {sessionFile, entryId?}` ·
+`session.reask {sessionId?|sessionFile, entryId, message}` ·
+`prompt.submit {message, streamingBehavior?, workspaceId?, images?, attachments?}` ·
+`prompt.queue {message, workspaceId?, images?, attachments?}` (followUp) · `prompt.steer {message, workspaceId?, images?, attachments?}` · `prompt.abort` ·
 `approval.respond {interactionId, confirmed}` · `question.respond {interactionId, value|cancelled}` ·
-`file.search {workspaceId, query}` · `file.read {workspaceId, path}` ·
+`file.search {workspaceId, query}` · `file.read {workspaceId, path, start?, end?}` · `file.upload {workspaceId, name, data}` ·
 `git.status {workspaceId}` · `git.diff {workspaceId, path?, staged?}` ·
-`model.list` · `model.set {provider, modelId}` · `thinking.set {level}` · `settings.update`
+`model.list` · `model.set {provider, modelId}` · `thinking.set {level}` · `settings.update` ·
+`terminal.create {workspaceId, cwd?, cols, rows}` · `terminal.input {workspaceId, terminalId, data}` ·
+`terminal.resize {workspaceId, terminalId, cols, rows}` · `terminal.kill {workspaceId, terminalId}` ·
+`terminal.commands {workspaceId, commands?}`
 
 ## Server events
 `connection.ready/error` · `session.snapshot` (full transcript rebuilt from omp JSONL) ·
@@ -50,7 +55,36 @@ Canonical type source: `packages/daemon/src/protocol.ts`.
 `tool.started/updated/completed/failed` · `approval.requested` (confirm) ·
 `question.requested` (select/input/editor) · `subagent.started/updated/completed` ·
 `todos.updated` · `queue.updated` · `replay.completed {replayed, lastSequence}` ·
-`response` (command correlation)
+`terminal.output {terminalId, data}` · `terminal.exit {terminalId, code}` · `response` (command correlation)
+
+### Terminal commands (opt-in)
+
+Terminal support is disabled unless the daemon was started with `--terminal`. When disabled,
+every `terminal.*` command returns `terminal_disabled`; when optional `node-pty` cannot load,
+terminal creation returns `terminal_unavailable`. Terminal frames are not journaled or replayed.
+
+- `terminal.create` starts `$SHELL` (or `/bin/bash`) at the workspace root, or at `cwd` after
+  canonical workspace-boundary validation, and returns `{terminalId}`. `cols` and `rows` are
+  integers in `[2, 1000]`; at most eight terminals may run for a workspace.
+- `terminal.input` accepts at most 64 KiB of UTF-8 data. `terminal.output` is streamed only
+  to the owning authenticated WebSocket; output above approximately 1 MiB/s is dropped with
+  an in-band notice rather than queued. The daemon retains no terminal scrollback.
+- `terminal.resize` changes the PTY dimensions and `terminal.kill` terminates that owned PTY.
+  Processes are also reaped when their WebSocket disconnects or the daemon stops.
+- `terminal.commands {workspaceId}` reads `<workspace>/.omp/commands.json` and returns
+  `{commands}`. Passing a validated `commands` array writes the same bounded config back.
+  Each command is `{id, name, command, cwd?}`; the UI expands literal `${pwd}` to the
+  workspace root before sending command text to an already-open user shell.
+
+### `session.reask`
+
+`session.reask` creates a new session file by copying the source session through the
+specified JSONL message `entryId`, changes that fork's title to `Fork of <source title>`,
+attaches a worker to the fork, and submits `message` to that worker. The source session
+file is never modified. The direct `response` includes `{accepted, sessionId, sessionFile,
+title}` and the daemon journals then broadcasts `session.forked` with `activate: true`, so
+every attached browser switches to the fork and resumes its snapshot. Transcript user
+items rebuilt from a session file include `entryId` for this command.
 
 ## Replay & dedupe
 1. Client tracks `lastSequence` per session from envelopes.
@@ -60,6 +94,24 @@ Canonical type source: `packages/daemon/src/protocol.ts`.
 4. Client dedupes by `eventId`; reducer upserts are idempotent by item id/toolCallId.
 5. If the journal was truncated (retention bound), the snapshot already covers history;
    replay gaps are therefore safe by construction.
+
+## Attachments and file previews
+
+- `file.upload` is a WebSocket command, so it has the same origin and token checks as
+  every other browser command. `data` is base64, decoded data is limited to 20 MiB, and
+  the daemon stores it under `~/.omp-webui/uploads/<workspaceId>/` with a sanitized,
+  generated filename. The response is `{path, name, size}`. Returned paths are accepted
+  only from that same workspace's upload directory.
+- Prompt commands accept `images: [{data, mimeType}]`; valid PNG, JPEG, WebP, and GIF
+  values are forwarded to omp as `{type:"image", data, mimeType}`. They also accept
+  `attachments: [{path, start?, end?} | {name, data, start?, end?}]`. Attachment paths
+  are contained in the active workspace or its private upload directory; `{name,data}`
+  uses the same bounded upload storage.
+- Text attachments up to `OMP_WEB_INLINE_FILE_MAX` bytes (default 12 KiB) are appended
+  to the outgoing prompt as `<file path="…">…</file>`. Inclusive `start`/`end` produces
+  `<file path="…" lines="start-end">` with only those lines. Larger or binary files
+  become a path-reference line. `file.read` is a preview-safe 512 KiB text read, returns
+  `binary: true` for binary/invalid UTF-8 data, and supports the same line range.
 
 ## Adapter boundary (daemon internal)
 omp frames → normalized events in `packages/daemon/src/session-runtime.ts` ONLY:
