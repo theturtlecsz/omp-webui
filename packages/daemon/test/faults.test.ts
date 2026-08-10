@@ -63,7 +63,7 @@ describe("fault injection", () => {
     expect(err1.error?.message).toContain("malformed");
 
     c.sendRaw(JSON.stringify({ protocolVersion: 1, type: "nope.command", id: "x1", payload: {} }));
-    const err2 = await c.waitFor((r) => r.correlationId === "x1" && r.error);
+    const err2 = await c.waitFor((r) => r.correlationId === "x1" && !!r.error);
     expect(err2.error?.message).toContain("unknown command");
 
     // connection still alive: a normal command still works
@@ -114,7 +114,7 @@ describe("fault injection", () => {
     // kill the worker process directly (simulates segfault/OOM)
     const anyRt = d.getRuntimeList()[0];
     expect(anyRt?.worker?.killNow).toBeTypeOf("function");
-    anyRt.worker!.killNow();
+    anyRt!.worker!.killNow();
     const crash = await c.waitFor((r) => r.type === "worker.crashed" || r.type === "worker.stopped", 15_000);
     expect(crash).toBeTruthy();
 

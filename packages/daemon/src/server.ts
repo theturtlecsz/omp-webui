@@ -87,6 +87,7 @@ export class Daemon {
       workerIdleMs: opts.workerIdleMs ?? 10 * 60 * 1000,
       approvalMode: opts.approvalMode ?? "write",
       terminal: opts.terminal ?? false,
+      dbPath: opts.dbPath ?? "",
     };
     this.store = new Store(opts.dbPath);
     this.#terminals = new TerminalManager({ enabled: opts.terminal === true });
@@ -739,7 +740,7 @@ export class Daemon {
   #assertKnownSessionFile(sessionFile: string): void {
     if (this.store.getSessionByFile(sessionFile)) return;
     if (this.#sessionFileAllowed(sessionFile)) return;
-    throw new PathEscapeError(sessionFile, "session file is not inside an approved workspace session directory");
+    throw new PathEscapeError(`${sessionFile}: session file is not inside an approved workspace session directory`);
   }
 
   /** omp can emit a terminal message frame shortly before its JSONL flush completes. */
@@ -769,13 +770,13 @@ export class Daemon {
     const canonicalTarget = existsSync(target) ? realpathSync(target) : target;
     const rel = relative(realDir, canonicalTarget);
     if (!rel || rel.startsWith("..") || rel.includes("/") || !canonicalTarget.endsWith(".jsonl")) {
-      throw new PathEscapeError(sessionFile, "session file is outside this workspace's session directory");
+      throw new PathEscapeError(`${sessionFile}: session file is outside this workspace's session directory`);
     }
     // If the file already exists, symlinks must resolve inside the dir too.
     if (existsSync(target)) {
       const realRel = relative(realDir, canonicalTarget);
       if (!realRel || realRel.startsWith("..") || realRel.includes("/")) {
-        throw new PathEscapeError(sessionFile, "session file symlink escapes the workspace session directory");
+        throw new PathEscapeError(`${sessionFile}: session file symlink escapes the workspace session directory`);
       }
     }
   }
@@ -1005,9 +1006,9 @@ export function buildSnapshot(sessionFile: string) {
     if (e.type === "title" && typeof e.title === "string" && e.title) title = e.title;
     else if (e.type === "session") sessionId = String(e.id ?? "");
     else if (e.type === "message") {
-      const raw = e.message as Record<string, unknown> | undefined;
-      const role = raw?.role as string | undefined;
-      if (role === "assistant" && Array.isArray(raw?.content)) {
+      const raw = (e.message ?? {}) as Record<string, unknown>;
+      const role = raw.role as string | undefined;
+      if (role === "assistant" && Array.isArray(raw.content)) {
         // assistant text (may accompany tool calls)
         const msg = normalizeMessage(raw);
         if (msg?.text) {

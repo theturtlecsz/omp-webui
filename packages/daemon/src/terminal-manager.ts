@@ -4,7 +4,8 @@
  * authenticated browser client that created it.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import type { WorkspaceBoundary } from "./workspace.js";
 
@@ -66,10 +67,17 @@ export class TerminalManager {
   readonly enabled: boolean;
   #loadPty: () => Promise<PtyModule>;
   #terminals = new Map<string, ManagedTerminal>();
+  #ptyModule?: Promise<PtyModule>;
 
   constructor(options: TerminalManagerOptions = {}) {
     this.enabled = options.enabled === true;
-    this.#loadPty = options.loadPty ?? loadNodePty;
+    this.#loadPty = options.loadPty ?? loadPtyViaHost;
+  }
+
+  #pty(): Promise<PtyModule> {
+    // One PTY host process serves every terminal in the workspace set.
+    this.#ptyModule ??= this.#loadPty();
+    return this.#ptyModule;
   }
 
   async dispatch(
@@ -115,6 +123,9 @@ export class TerminalManager {
 
   stop(): void {
     for (const terminal of [...this.#terminals.values()]) this.#kill(terminal, "SIGTERM");
+    const modulePromise = this.#ptyModule;
+    this.#ptyModule = undefined;
+    void modulePromise?.then((mod) => (mod as { dispose?: () => void }).dispose?.()).catch(() => undefined);
   }
 
   /** Test hook; never exposes PTY data to callers. */
@@ -139,9 +150,11 @@ export class TerminalManager {
 
     let ptyModule: PtyModule;
     try {
-      ptyModule = await this.#loadPty();
+      ptyModule = await this.#pty();
     } catch {
-      throw new TerminalError("terminal support is unavailable because optional node-pty could not be loaded", "terminal_unavailable");
+      // Allow a later create to retry with a fresh host process.
+      this.#ptyModule = undefined;
+      throw new TerminalError("terminal support is unavailable because the node-pty host could not be started", "terminal_unavailable");
     }
 
     const id = `term_${randomUUID()}`;
@@ -229,10 +242,119 @@ export class TerminalManager {
   }
 }
 
-async function loadNodePty(): Promise<PtyModule> {
-  // node-pty is deliberately optional. This import occurs only after a user
-  // creates a terminal, so a normal daemon boot has no native dependency.
-  return await import("node-pty") as unknown as PtyModule;
+/**
+ * The daemon runs under Bun, whose native ABI (NODE_MODULE_VERSION 137)
+ * differs from Node's (115), so node-pty cannot load in-process. Instead we
+ * spawn pty-host.mjs under a real Node runtime and proxy PTY traffic over
+ * newline-delimited JSON on stdio. The host is lazy: a normal daemon boot has
+ * no native dependency and no child process.
+ */
+async function loadPtyViaHost(): Promise<PtyModule> {
+  const hostPath = join(dirname(fileURLToPath(import.meta.url)), "pty-host.mjs");
+  const nodeBin = process.env.OMP_PTY_HOST_NODE || "node";
+  const proc = Bun.spawn([nodeBin, hostPath], {
+    cwd: dirname(hostPath),
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "inherit",
+    env: { PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin", HOME: process.env.HOME ?? "/tmp" },
+  });
+
+  const listeners = new Map<string, { data: Set<(data: string) => void>; exit: Set<(event: { exitCode: number }) => void> }>();
+  const pendingSpawns = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
+  let buffer = "";
+  let readyResolve!: () => void;
+  let readyReject!: (error: Error) => void;
+  const ready = new Promise<void>((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
+
+  const reader = proc.stdout.getReader();
+  const decoder = new TextDecoder();
+  const pump = (async () => {
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let newline = buffer.indexOf("\n");
+        while (newline !== -1) {
+          const line = buffer.slice(0, newline);
+          buffer = buffer.slice(newline + 1);
+          newline = buffer.indexOf("\n");
+          if (!line.trim()) continue;
+          let message: Record<string, unknown>;
+          try { message = JSON.parse(line) as Record<string, unknown>; } catch { continue; }
+          const id = typeof message.id === "string" ? message.id : "";
+          switch (message.type) {
+            case "ready": readyResolve(); break;
+            case "load_error": readyReject(new Error(String(message.message ?? "node-pty failed to load"))); break;
+            case "spawned": pendingSpawns.get(id)?.resolve(); pendingSpawns.delete(id); break;
+            case "spawn_error": {
+              pendingSpawns.get(id)?.reject(new Error(String(message.message ?? "spawn failed")));
+              pendingSpawns.delete(id);
+              const entry = listeners.get(id);
+              if (entry) { for (const fn of entry.exit) fn({ exitCode: 1 }); listeners.delete(id); }
+              break;
+            }
+            case "output": for (const fn of listeners.get(id)?.data ?? []) fn(String(message.data ?? "")); break;
+            case "exit": {
+              const code = typeof message.code === "number" ? message.code : 0;
+              const entry = listeners.get(id);
+              if (entry) { for (const fn of entry.exit) fn({ exitCode: code }); listeners.delete(id); }
+              break;
+            }
+            default: break;
+          }
+        }
+      }
+    } finally {
+      readyReject(new Error("pty host exited"));
+      for (const pending of pendingSpawns.values()) pending.reject(new Error("pty host exited"));
+      pendingSpawns.clear();
+      for (const entry of listeners.values()) for (const fn of entry.exit) fn({ exitCode: 1 });
+      listeners.clear();
+    }
+  })();
+  void pump;
+
+  const send = (message: Record<string, unknown>): void => {
+    proc.stdin.write(`${JSON.stringify(message)}\n`);
+    proc.stdin.flush();
+  };
+
+  await ready;
+
+  const module: PtyModule & { dispose(): void } = {
+    spawn(file, _args, options) {
+      const id = randomUUID();
+      listeners.set(id, { data: new Set(), exit: new Set() });
+      const spawned = new Promise<void>((resolve, reject) => pendingSpawns.set(id, { resolve, reject }));
+      send({ type: "spawn", id, cwd: options.cwd, shell: file, env: options.env, cols: options.cols, rows: options.rows });
+      // The manager only wires listeners after spawn returns; the host echoes
+      // no output before "spawned", and callers that need strict ordering can
+      // await this promise. node-pty itself buffers nothing pre-spawn either.
+      void spawned.catch(() => undefined);
+      return {
+        write(data) { send({ type: "input", id, data }); },
+        resize(cols, rows) { send({ type: "resize", id, cols, rows }); },
+        kill() { send({ type: "kill", id }); },
+        onData(listener) {
+          const entry = listeners.get(id);
+          entry?.data.add(listener);
+          return { dispose() { entry?.data.delete(listener); } };
+        },
+        onExit(listener) {
+          const entry = listeners.get(id);
+          entry?.exit.add(listener);
+          return { dispose() { entry?.exit.delete(listener); } };
+        },
+      };
+    },
+    dispose() {
+      try { proc.stdin.end(); } catch { /* already closed */ }
+      try { proc.kill(); } catch { /* already reaped */ }
+    },
+  };
+  return module;
 }
 
 function safeTerminalEnv(shell: string): Record<string, string> {

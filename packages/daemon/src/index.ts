@@ -8,6 +8,7 @@ function parseArgs(argv: string[]): Record<string, string | boolean | string[]> 
   const out: Record<string, string | boolean | string[]> = {};
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
+    if (!a) continue;
     if (a.startsWith("--")) {
       const key = a.slice(2);
       const next = argv[i + 1];
