@@ -65,6 +65,16 @@ function plan(messages: Msg[], tools: unknown[] | undefined): object[] {
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
   const userText = textOf(lastUser?.content).toLowerCase();
 
+  // Test-only: acknowledge image attachments so E2E can assert the round trip.
+  // omp's vision guard substitutes a placeholder for non-vision models (like
+  // this stub), so accept either the real image part or the placeholder.
+  const hasImage = messages.some((m) => Array.isArray(m.content) && m.content.some((c: any) => typeof c?.type === "string" && c.type.includes("image")));
+  if (hasImage || userText.includes("[image omitted")) return textChunks("I received an image attachment.");
+  // Test-only: emit rich markdown so E2E can assert the renderer.
+  if (userText.includes("markdown")) {
+    return textChunks("Here is **bold** text with `inline code`.\n\n| col A | col B |\n|---|---|\n| 1 | 2 |\n\n```js\nconst answer = 42;\n```");
+  }
+
   // After a tool result, summarize and stop.
   if (last?.role === "tool") {
     const resultText = textOf(last.content).slice(0, 200);
