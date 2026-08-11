@@ -100,7 +100,7 @@ CLI subcommands `server install|uninstall|start|stop|restart|status`.
 | Multi-tab xterm.js terminal | ✅ three-pane, tabs | ✅ tabs + rename + shortcuts + export/import | ✅ / ✅ + we exceed |
 | Project commands.json | ✅ (`save_commands`/`list_commands`) | ✅ (`.omp/commands.json` write + export/import UI) | ✅ |
 | Model listing + switch | ✅ `list_models` + `set_model` + cycle | ✅ ModelPickerDialog: provider-grouped listbox with metadata (ctx window, reasoning, cost) + model.cycle passthrough | ✅ |
-| Provider/model CRUD + API keys from UI | ✅ full CRUD | ❌ not implemented | ❌ gap |
+| Provider/model CRUD + API keys from UI | ✅ full CRUD | ✅ Providers drawer tab → daemon writes `~/.omp/agent/models.yml`; apiKey masked in listings (write-only field); model add/remove per provider | ✅ |
 | Thinking-level control | ✅ set + cycle | ✅ full 7-level range (off…xhigh/max) in ModelPickerDialog + thinking.cycle passthrough | ✅ |
 | Plugin dialogs (select/confirm/input/editor) | ✅ generic modal | ✅ method-specific dialogs (Select/Input/Editor + Approval for confirm) — see gap #4 note below | ✅ |
 | Path autocomplete for cwd | ✅ `complete_path` | ✅ daemon `path.complete` + datalist on open-path input | ✅ |
@@ -333,7 +333,7 @@ still exist in 0.17.1 — gap list below remains accurate.
 | 2 | `extension_ui_request` handling | ✅ shipped (all 11 methods, this session) |
 | 3 | Model picker + thinking-level control | ✅ shipped 2026-08-11 — ModelPickerDialog (provider-grouped, metadata-rich, full 7-level thinking range) + `model.cycle`/`thinking.cycle` daemon passthroughs; verified live against omp 17.2.13 (daemon test `model-commands.test.ts`, 9 web unit tests, happy-path E2E rewritten to drive the dialog) |
 | 4 | Input-request dialogs | ✅ shipped (this session) |
-| 5 | Provider/model CRUD | ❌ open |
+| 5 | Provider/model CRUD | ✅ shipped 2026-08-11 — daemon `provider.list/add/remove` + `model.add/remove` write omp's `models.yml` (schema verified against installed 17.2.13 zod types; `yaml` pkg, atomic tmp+rename writes, apiKey never sent to the browser); idle ready workers are stopped post-write so the next spawn reloads (omp has no models.yml watcher — verified against dist/cli.js watch sites). Web: Providers drawer tab (list/add/remove provider + models, key field, `providers.changed` broadcast). E2E adds a provider, selects its model in the picker, serves a real turn through it, then removes it |
 | 6 | Workspace file browser panel (+ their new `file_changed` push) | ✅ shipped 2026-08-11 — FileTreePanel (navigable dirs-first tree, preview + add-to-conversation per entry) backed by daemon `file.list` (boundary-contained, 500-entry cap) and a debounced non-recursive fs.watch that pushes `file.changed` to the listing client; E2E verifies external writes refresh the tree without reload |
 | 7 | Questions nav bar | ✅ shipped 2026-08-11 — Questions drawer tab lists user messages with click-to-jump (`data-msg-id` anchors + `msg-flash` highlight), mirroring pi-web-ui's 问题列表 |
 | 8 | Recent-projects MRU switcher | ✅ shipped 2026-08-11 — localStorage-backed MRU (8 entries, deduped, most-recent-first) recorded centrally on every workspace open, rendered in Sidebar with click-to-reopen |

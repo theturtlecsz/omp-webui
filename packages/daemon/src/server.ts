@@ -15,6 +15,18 @@ import { WorkspaceBoundary, PathEscapeError, readWorkspaceFile, searchWorkspaceF
 import { listSessionFiles, readSessionEntries, sessionDirForCwd } from "./session-files.js";
 import { PROTOCOL_VERSION, type ClientCommand, type Envelope } from "./protocol.js";
 import { TerminalManager } from "./terminal-manager.js";
+import {
+  agentDirFromEnv,
+  listProviders,
+  removeModel,
+  removeProvider,
+  upsertModel,
+  upsertProvider,
+  writeModelsConfig,
+  ProviderConfigError,
+  type ProviderConfigInput,
+  type ModelConfigInput,
+} from "./providers.js";
 
 /** Hard cap on a fully-assembled prompt (message + inlined attachments). */
 const MAX_PROMPT_BYTES = 512 * 1024;
@@ -489,6 +501,36 @@ export class Daemon {
           correlationId: cmd.id,
           payload: { dirs: completeDirectories(String(p.prefix ?? "")) },
         });
+        return;
+      }
+      case "provider.list": {
+        this.#send(client, {
+          type: "response",
+          correlationId: cmd.id,
+          payload: { providers: listProviders(this.#agentDir()) },
+        });
+        return;
+      }
+      case "provider.add": {
+        const next = upsertProvider(this.#agentDir(), p as unknown as ProviderConfigInput);
+        this.#commitProviders(client, cmd.id, next);
+        return;
+      }
+      case "provider.remove": {
+        const next = removeProvider(this.#agentDir(), String(p.id ?? ""));
+        if (!next) throw new ProviderConfigError(`provider ${String(p.id ?? "")} does not exist`);
+        this.#commitProviders(client, cmd.id, next);
+        return;
+      }
+      case "model.add": {
+        const next = upsertModel(this.#agentDir(), String(p.providerId ?? ""), p.model as ModelConfigInput);
+        this.#commitProviders(client, cmd.id, next);
+        return;
+      }
+      case "model.remove": {
+        const next = removeModel(this.#agentDir(), String(p.providerId ?? ""), String(p.modelId ?? ""));
+        if (!next) throw new ProviderConfigError(`model ${String(p.modelId ?? "")} not found`);
+        this.#commitProviders(client, cmd.id, next);
         return;
       }
       case "file.search": {
@@ -1070,6 +1112,36 @@ export class Daemon {
         rt.dispose();
       }
     }
+  }
+
+  /** Agent dir omp workers read models.yml from (PI_CODING_AGENT_DIR override or default). */
+  #agentDir(): string {
+    return agentDirFromEnv(this.opts.workerEnv ?? process.env);
+  }
+
+  /**
+   * Persist a provider map, then restart idle workers: omp loads models.yml
+   * at worker startup only (no file watcher — verified against 17.2.13), so
+   * a running worker would keep serving the stale provider list. Streaming
+   * workers are left alone; their next spawn picks up the new config.
+   */
+  async #commitProviders(client: Client, correlationId: string, providers: Record<string, Record<string, unknown>>): Promise<void> {
+    writeModelsConfig(this.#agentDir(), providers);
+    await this.#restartIdleWorkers();
+    const payload = { providers: listProviders(this.#agentDir()) };
+    this.#send(client, { type: "response", correlationId, payload });
+    this.#broadcast({ type: "providers.changed", payload });
+  }
+
+  async #restartIdleWorkers(): Promise<void> {
+    const stops: Promise<void>[] = [];
+    for (const [key, rt] of this.#runtimes) {
+      if (!rt.worker || rt.worker.state !== "ready" || rt.state.isStreaming) continue;
+      stops.push(rt.worker.stop().catch(() => {}));
+      this.#runtimes.delete(key);
+      rt.dispose();
+    }
+    await Promise.all(stops);
   }
 
   #send(client: Client, event: Partial<Envelope> & { type: string }): void {

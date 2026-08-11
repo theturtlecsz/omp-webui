@@ -2,6 +2,31 @@
 
 Last updated: 2026-08-11
 
+## 2026-08-11 (night) — provider/model CRUD (gap #5)
+- Schema verified against installed omp 17.2.13 before writing anything:
+  `dist/types/config/models-config.d.ts` (zod-inferred provider/model shape)
+  + confirmed NO models.yml file watcher in dist/cli.js (omp loads at worker
+  startup; pi-web-ui hot-reloads only because it embeds omp in-process).
+- New daemon module `providers.ts` (`yaml` pkg): read/upsert/remove provider
+  and model entries with atomic tmp+rename writes, unknown-field preservation,
+  and validation (id charset, api enum, positive int windows, last-model guard).
+- WS commands: `provider.list` (apiKey masked — never sent to browser),
+  `provider.add`, `provider.remove`, `model.add`, `model.remove`. Each write
+  stops idle ready workers so the next spawn reloads models.yml, then
+  broadcasts `providers.changed` to all clients.
+- Web: Providers drawer tab (5th tab) — provider cards with metadata + masked
+  key state, add-provider form (id/api/baseUrl/key/first model), inline model
+  add/remove, daemon validation errors surfaced as alerts.
+- Tests: daemon +19 (13 module-level round-trip/validation, 6 WS command
+  round-trips incl. broadcast to a second client); web +7 (list/mask, add
+  provider payload shape, optional-field omission, model add/remove, error
+  surfacing, providers.changed); Playwright +1 full lifecycle: add provider →
+  models.yml on disk → new session sees model in picker → serves a real turn
+  through it → remove. E2E snapshots/restores the user's real models.yml.
+- Suites: daemon 71/71, web 88/88, Playwright 21/21, terminal 1/1.
+- 10 of 12 gaps shipped. Remaining: #10 i18n, #11 sound, #12 reference-mode
+  attachments — all cosmetic.
+
 ## 2026-08-11 (night) — questions nav, recent workspaces, path autocomplete
 - Gaps #7/#8/#9 closed in one pass:
   - **Questions tab** (drawer, 4th tab): lists user messages with click-to-jump
