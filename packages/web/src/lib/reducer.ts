@@ -248,6 +248,15 @@ export function applyServerEvent(state: AppState, event: ServerEnvelope): AppSta
       return { ...next, sessionState: { ...next.sessionState, workerState: event.type.split('.')[1] } };
     case 'replay.completed':
       return { ...next, replayDone: event.sessionId ? { ...next.replayDone, [event.sessionId]: true } : next.replayDone };
+    case 'session.updated': {
+      // Merge omp-forwarded session-scoped surfaces (slash commands, extension widgets, etc.)
+      // Only known keys are extracted so unknown ones do not pollute sessionState.
+      const patch: Record<string, unknown> = {};
+      if (Array.isArray(payload.availableCommands)) patch.availableCommands = payload.availableCommands;
+      if (payload.extensionUI && typeof payload.extensionUI === 'object') patch.extensionUI = payload.extensionUI;
+      if (Object.keys(patch).length === 0) return next;
+      return { ...next, sessionState: { ...next.sessionState, ...patch } };
+    }
     default:
       return next;
   }

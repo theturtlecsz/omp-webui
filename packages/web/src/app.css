@@ -276,3 +276,25 @@
   .composer__bar select { max-width: 8rem; }
   .status-bar { padding-inline: var(--space-2); }
 }
+
+/* --- Slash command palette --- */
+.slash-palette-backdrop { position: fixed; inset: 0; background: color-mix(in oklab, black 45%, transparent); z-index: var(--z-modal, 60); display: grid; place-items: start center; padding-block-start: 10vh; }
+.slash-palette { width: min(560px, 92vw); max-height: 70vh; display: flex; flex-direction: column; background: var(--color-surface, #fff); color: var(--color-text, #111); border: 1px solid var(--color-border, #e2e2e2); border-radius: 12px; box-shadow: var(--shadow-lg, 0 10px 40px rgba(0,0,0,.2)); overflow: hidden; }
+.slash-palette__input { border: 0; padding: 14px 16px; font-size: 15px; background: transparent; color: inherit; border-block-end: 1px solid var(--color-border, #e2e2e2); outline: 0; }
+.slash-palette__list { list-style: none; margin: 0; padding: 4px 0; overflow: auto; }
+.slash-palette__row { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 8px; padding: 8px 16px; cursor: pointer; }
+.slash-palette__row.is-sub { padding-inline-start: 32px; opacity: .9; }
+.slash-palette__row.is-active { background: color-mix(in oklab, var(--color-primary, #4a68ff) 12%, transparent); }
+.slash-palette__name { font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Consolas, monospace); font-size: 13px; }
+.slash-palette__hint { color: var(--color-text-muted, #666); font-style: normal; margin-inline-start: 6px; font-size: 12px; }
+.slash-palette__desc { color: var(--color-text-muted, #666); font-size: 12px; grid-column: 1 / -1; }
+.slash-palette__badge { color: var(--color-text-muted, #666); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.slash-palette__empty { padding: 16px; color: var(--color-text-muted, #666); font-size: 13px; }
+.slash-palette__foot { padding: 8px 16px; border-block-start: 1px solid var(--color-border, #e2e2e2); color: var(--color-text-muted, #666); font-size: 11px; }
+
+/* --- Extension widget banner --- */
+.extension-widget { display: flex; align-items: center; gap: 10px; margin: var(--space-3, 12px) var(--space-4, 16px) 0; padding: 8px 12px; border: 1px solid var(--color-border, #e2e2e2); border-radius: 8px; background: color-mix(in oklab, var(--color-primary, #4a68ff) 6%, var(--color-surface, transparent)); font-size: 13px; }
+.extension-widget__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary, #4a68ff); }
+.extension-widget__title { font-weight: 600; }
+.extension-widget__hint { color: var(--color-text-muted, #666); }
+.extension-widget__link { margin-inline-start: auto; color: var(--color-primary, #4a68ff); font-size: 12px; }

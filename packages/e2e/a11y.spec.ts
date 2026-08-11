@@ -28,7 +28,18 @@ test.describe('accessibility smoke checks', () => {
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
 
+    // Cmd/Ctrl+K opens the slash-command palette once omp has streamed its
+    // available_commands_update (which happens after the first assistant reply).
+    // When no commands are loaded (fresh session, no reply yet), it falls back
+    // to focusing the sessions search input — that fallback path is exercised
+    // in the palette spec's second test.
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
-    await expect(page.getByLabel('Search sessions')).toBeFocused();
+    const palette = page.getByRole('dialog', { name: 'Slash command palette' });
+    const search = page.getByLabel('Search sessions');
+    await expect(async () => {
+      const paletteVisible = await palette.isVisible().catch(() => false);
+      const searchFocused = await search.evaluate((el) => el === document.activeElement).catch(() => false);
+      expect(paletteVisible || searchFocused).toBe(true);
+    }).toPass({ timeout: 5_000 });
   });
 });

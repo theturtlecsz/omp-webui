@@ -174,11 +174,23 @@ What this proves:
 
 ## Honest gap list to close for real parity
 
-1. **Slash-command palette** — subscribe to `available_commands_update` and
-   render a Cmd/Ctrl+K palette. Currently the ~30 built-in omp commands are
-   invisible from our UI. **Highest impact.**
-2. **`extension_ui_request` handling** — at minimum, log/pass-through; ideally
-   render extension widgets (autoresearch on startup is a real signal).
+1. ~~**Slash-command palette**~~ — **shipped this session.** `SlashCommandPalette`
+   component subscribes to `sessionState.availableCommands` (populated from
+   `session.updated.availableCommands` in the reducer), opens on Cmd/Ctrl+K
+   OR when the user types `/` at position 0 in the composer, supports
+   arrow-key navigation, fuzzy filtering, subcommand expansion via Enter or
+   ArrowRight, and inserts the chosen command into the composer for the user
+   to add arguments and submit. First iteration renders the same ~30 builtin
+   omp slash commands verified in the probe above. `ExtensionWidget` renders
+   `session.updated.extensionUI` at the top of the conversation area with a
+   registry-based label for known widgetKeys (e.g. `autoresearch`) and a
+   neutral fallback for unknown ones. Verified end-to-end by
+   `packages/e2e/slash-palette.spec.ts` (2 tests) against real omp v17.2.12.
+2. ~~**`extension_ui_request` handling**~~ — **shipped this session** for the
+   `setWidget` method (ambient banner with registry-based labels; unknown
+   widgetKeys fall back to a neutral badge). Other extension-UI methods
+   (`confirm`, `select`, `input`, `editor`) were already routed through
+   approval/question dialogs prior to this session.
 3. **Model picker + thinking-level control** — `omp --mode rpc` exposes model
    selection through the same frame types the CLI uses; we should surface it.
 4. **Input-request dialogs** — omp will send `input_request` frames for tool

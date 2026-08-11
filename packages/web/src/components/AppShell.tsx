@@ -15,6 +15,8 @@ import { useOverlayFocus } from './dialog-utils';
 import { TerminalPane } from './TerminalPane';
 import { attachmentId, type AttachmentRange, type PendingAttachment } from '../lib/attachments';
 import { FilePreviewDialog } from './FilePreviewDialog';
+import { SlashCommandPalette } from './SlashCommandPalette';
+import { ExtensionWidget } from './ExtensionWidget';
 
 type FilePreview = { path: string; content: string; truncated?: boolean; binary?: boolean; lineCount?: number };
 
@@ -79,6 +81,7 @@ export function AppShell() {
   const [daemonVersion, setDaemonVersion] = useState('');
   const [announcement, setAnnouncement] = useState('');
   const [surface, setSurface] = useState<'chat' | 'terminal'>('chat');
+  const [palette, setPalette] = useState<{ open: boolean; query: string }>({ open: false, query: '' });
   const drawerTrigger = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
   const wasStreaming = useRef(false);
@@ -190,7 +193,14 @@ export function AppShell() {
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
-        document.querySelector<HTMLInputElement>('[aria-label="Search sessions"]')?.focus();
+        // With an active session and a command catalog, cmd/ctrl-K opens the slash palette.
+        // Without either, fall back to the sidebar session search — preserves prior behavior.
+        const store = useAppStore.getState();
+        if (store.activeSession && (store.sessionState.availableCommands?.length ?? 0) > 0) {
+          setPalette({ open: true, query: '' });
+        } else {
+          document.querySelector<HTMLInputElement>('[aria-label="Search sessions"]')?.focus();
+        }
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
         event.preventDefault();
@@ -269,6 +279,7 @@ export function AppShell() {
         <div className="main-surface">
           <TerminalPane workspaceId={state.activeWorkspaceId} workspaceRoot={workspace?.root} client={daemonClient} visible={surface === 'terminal'} />
           <div id="conversation" className={`conversation ${surface === 'chat' ? '' : 'is-hidden'}`}>
+          <ExtensionWidget widget={state.sessionState.extensionUI} />
           <Transcript
             items={state.transcript}
             cards={state.toolCards}
@@ -300,6 +311,8 @@ export function AppShell() {
             onDraft={setDraft}
             attachments={attachments}
             onAttachments={setAttachments}
+            onSlashTrigger={(query) => setPalette({ open: true, query })}
+            hasCommands={(state.sessionState.availableCommands?.length ?? 0) > 0}
           />
           </div>
         </div>
@@ -355,6 +368,26 @@ export function AppShell() {
           }}
         />
       )}
+      <SlashCommandPalette
+        open={palette.open}
+        commands={state.sessionState.availableCommands ?? []}
+        initialQuery={palette.query}
+        onClose={() => setPalette({ open: false, query: '' })}
+        onSelect={(text) => {
+          setPalette({ open: false, query: '' });
+          // Insert selected command into the composer textarea and focus it so the
+          // user can add arguments (if any) or hit Enter to submit.
+          const el = document.getElementById('composer-input') as HTMLTextAreaElement | null;
+          if (!el) return;
+          const prev = el.value ?? '';
+          const next = prev.trimStart().startsWith('/') ? text + prev.slice(prev.indexOf(' ') >= 0 ? prev.indexOf(' ') : prev.length) : `${text} `;
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+          setter?.call(el, next);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.focus();
+          el.setSelectionRange(next.length, next.length);
+        }}
+      />
       {pending?.kind === 'question' && (
         <QuestionDialog
           interaction={pending}

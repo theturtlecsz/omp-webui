@@ -18,9 +18,11 @@ type Props = {
   onDraft: (file: string, value: string) => void;
   attachments?: PendingAttachment[];
   onAttachments?: (attachments: PendingAttachment[]) => void;
+  onSlashTrigger?: (initialQuery: string) => void;
+  hasCommands?: boolean;
 };
 
-export function Composer({ session, workspaceId, isStreaming, queuedPrompts, model, thinkingLevel, contextPercent, client, onDraft, attachments = [], onAttachments = () => undefined }: Props) {
+export function Composer({ session, workspaceId, isStreaming, queuedPrompts, model, thinkingLevel, contextPercent, client, onDraft, attachments = [], onAttachments = () => undefined, onSlashTrigger, hasCommands }: Props) {
   const key = session?.sessionFile;
   const [value, setValue] = useState(() => key ? localStorage.getItem(`omp-webui.draft.${key}`) ?? '' : '');
   const [mention, setMention] = useState('');
@@ -35,6 +37,23 @@ export function Composer({ session, workspaceId, isStreaming, queuedPrompts, mod
     if (key) { localStorage.setItem(`omp-webui.draft.${key}`, next); onDraft(key, next); }
     const at = next.slice(0, textRef.current?.selectionStart ?? next.length).match(/@([^\s@]*)$/);
     setMention(at?.[1] ?? '');
+  };
+
+  // Open the slash-command palette when the user starts a line with '/'.
+  // Uses onKeyDown (not onChange) so it fires on the actual keystroke and does
+  // not race with textarea composition (Chinese/Japanese IME).
+  const maybeOpenPalette = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!onSlashTrigger || !hasCommands || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.key !== '/') return;
+    const el = textRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? 0;
+    // Only trigger when '/' is at the very start of the textarea (matches pi-web-ui behavior).
+    const beforeCursor = el.value.slice(0, start);
+    if (beforeCursor.trim().length === 0) {
+      event.preventDefault();
+      onSlashTrigger('');
+    }
   };
   const submit = (mode: 'prompt.submit' | 'prompt.queue' | 'prompt.steer' = 'prompt.submit') => {
     if (!session || (!value.trim() && attachments.length === 0)) return;
@@ -82,7 +101,7 @@ export function Composer({ session, workspaceId, isStreaming, queuedPrompts, mod
     {warning && <p className="composer__warning" role="status">This model is marked as not supporting image input. Your image will still be sent.</p>}
     {uploadError && <p className="composer__warning composer__warning--error" role="status">{uploadError}</p>}
     <label className="u-sr-only" htmlFor="composer-input">Message OMP</label>
-    <textarea id="composer-input" ref={textRef} value={value} disabled={!session} placeholder={session ? 'Ask OMP to work on your project…' : 'Open a session to start'} onChange={e => change(e.target.value)} onPaste={event => { const files = [...event.clipboardData.files]; if (files.length) { event.preventDefault(); void uploadFiles(files); } }} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} />
+    <textarea id="composer-input" ref={textRef} value={value} disabled={!session} placeholder={session ? 'Ask OMP to work on your project…' : 'Open a session to start'} onChange={e => change(e.target.value)} onPaste={event => { const files = [...event.clipboardData.files]; if (files.length) { event.preventDefault(); void uploadFiles(files); } }} onKeyDown={e => { maybeOpenPalette(e); if (e.defaultPrevented) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} />
     <input ref={picker} className="u-sr-only" type="file" multiple onChange={(event) => { void uploadFiles([...((event.target as HTMLInputElement).files ?? [])]); event.currentTarget.value = ''; }} />
     {!session && <small className="composer__hint">Open a session to send a message.</small>}
     <div className="composer__bar"><button type="button" className="icon-button" aria-label="Attach file" disabled={!session} onClick={() => picker.current?.click()}><Paperclip size={17} /></button>
