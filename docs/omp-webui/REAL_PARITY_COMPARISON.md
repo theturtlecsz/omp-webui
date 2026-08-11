@@ -1,5 +1,10 @@
 # REAL_PARITY_COMPARISON — pi-web-ui v0.15.0 vs omp-webui (2026-08-10)
 
+> **Re-validated 2026-08-11** against pi-web-ui **0.17.1** and omp **17.2.13**
+> (see "2026-08-11 re-baseline" section at the bottom). Full suites re-run
+> green against omp 17.2.13: daemon bun 43/43, web vitest 56/56, Playwright
+> default 17/17, Playwright terminal 1/1.
+
 ## The framing problem I need to lead with
 
 pi-web-ui is a browser frontend for **`@earendil-works/pi-coding-agent`** (the
@@ -259,3 +264,83 @@ Against the **real omp backend**: we cover the streaming/tool/reask/terminal
 surfaces cleanly, but we do not yet handle two frame types omp emits on every
 startup (`extension_ui_request` and `available_commands_update`). Closing
 those is the highest-value next work item.
+
+## 2026-08-11 re-baseline — pi-web-ui 0.15.0 → 0.17.1, omp 17.2.12 → 17.2.13
+
+Both upstreams moved since the original comparison. Method: `npm pack` of
+`pi-web-ui@0.15.0` and `pi-web-ui@0.17.1`, string/identifier diff of
+`dist/server/agent-service.js`, `dist/server/index.js`, and the web bundles;
+`npm pack` of `@oh-my-pi/pi-coding-agent@17.2.13` and a file-level diff of
+`dist/` against the installed 17.2.12.
+
+### omp 17.2.12 → 17.2.13: no protocol drift
+
+47 files changed, but `dist/types/modes/rpc/rpc-types.d.ts` is **byte-identical**.
+The one RPC-touching changelog entry ("Fixed RPC `message_end` frames being
+serialized more than once before output") explicitly "preserv[es] v1 and v2 wire
+bytes". Everything else is TUI rendering, advisor internals, provider/search
+features, and bug fixes that do not touch the frame surface we consume.
+
+Local omp upgraded to 17.2.13 and the full battery re-run against it:
+
+| Suite | Result |
+| --- | --- |
+| daemon `bun test` | 43/43 |
+| web `vitest run` | 56/56 |
+| web `tsc --noEmit` + `vite build` | clean |
+| Playwright default (real omp 17.2.13 + stub-llm) | 17/17 |
+| Playwright terminal | 1/1 |
+
+### pi-web-ui 0.15.0 → 0.17.1: what actually changed
+
+The README was restructured (shorter), but bundle-level diff shows the real
+feature deltas:
+
+1. **Native slash-command palette + server-side execution.** The server now
+   broadcasts a `slash_commands` catalog (native builtins + `skill:*` +
+   extension + template + prompt sources) and executes native commands
+   itself (`/new`, `/model`, `/compact`, `/cwd`, `/thinking`, `/resume`,
+   `/reload`, `/help`, `/copy`) without passing them to the SDK. The web UI
+   gained a sectioned slash menu (↑↓ select, Enter/Tab complete, "type /
+   anytime" hint). **Our position:** we shipped the equivalent in Phase 8 —
+   palette fed by omp's `available_commands_update`, which is arguably the
+   more correct architecture for us since omp owns command semantics.
+   ✅ parity held.
+2. **`file_changed` server push.** The server `fs.watch`es the currently
+   listed directory (one level) and pushes `file_changed` so the file-listing
+   panel refreshes instantly instead of on the 10 s poll. This is an
+   incremental improvement to their **workspace file browser panel**, which
+   we do not have at all (pre-existing gap, now slightly larger). ❌ gap
+   (unchanged classification: file browser is the gap; watch-push is polish
+   on top of it).
+3. **Questions nav bar** ("问题列表"/"Questions") — a side bar listing every
+   user question in the conversation with click-to-jump (`data-msg-id`
+   anchors + `msg-flash` highlight). New minor UX feature. ❌ new minor gap.
+4. **`nginx-subpath.conf`** deploy artifact. N/A for us (deploy deferred).
+5. No features were removed (no removed UI strings; only an internal
+   `followUp` identifier disappeared from the server).
+
+Features we previously recorded as gaps (model/provider CRUD panel, path
+autocomplete, thinking-level control, recent-projects MRU, sound, i18n) all
+still exist in 0.17.1 — gap list below remains accurate.
+
+### Updated honest gap list (post-re-baseline)
+
+| # | Gap | Status vs 0.17.1 |
+| --- | --- | --- |
+| 1 | Slash-command palette | ✅ shipped (Phase 8), parity held vs their new native palette |
+| 2 | `extension_ui_request` handling | ✅ shipped (all 11 methods, this session) |
+| 3 | Model picker + thinking-level control | ❌ open — daemon has `model.list`/`model.set`/`thinking.set`; no web UI |
+| 4 | Input-request dialogs | ✅ shipped (this session) |
+| 5 | Provider/model CRUD | ❌ open |
+| 6 | Workspace file browser panel (+ their new `file_changed` push) | ❌ open — grew slightly |
+| 7 | Questions nav bar | ❌ new minor gap (0.16/0.17 addition) |
+| 8 | Recent-projects MRU switcher | ❌ open (cosmetic) |
+| 9 | Path autocomplete | ❌ open (cosmetic) |
+| 10 | i18n scaffold | ❌ open |
+| 11 | Sound effects | ❌ open (nice-to-have) |
+| 12 | Reference-mode attachments | ❌ open |
+
+Non-goals confirmed unchanged: system-service installers, Docker, self-update
+panel, cross-platform service managers (their 0.17.x `server` subcommand work
+is all in this deferred category).

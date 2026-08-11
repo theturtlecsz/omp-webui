@@ -1,6 +1,19 @@
 # STATUS
 
-Last updated: 2026-08-10 (orchestrator)
+Last updated: 2026-08-11
+
+## 2026-08-11 — upstream re-baseline + extension-UI dialogs
+- omp upgraded 17.2.12 → **17.2.13**; RPC type surface byte-identical, all
+  suites re-run green against it (daemon 43/43, web vitest 56/56, Playwright
+  default 17/17, terminal 1/1).
+- pi-web-ui re-baselined 0.15.0 → **0.17.1**: upstream added a native
+  slash-command palette (parity held — ours is omp-catalog-driven), a
+  `file_changed` fs.watch push on their file browser (gap slightly larger),
+  and a Questions nav bar (new minor gap). Full detail in
+  REAL_PARITY_COMPARISON.md §"2026-08-11 re-baseline".
+- All 11 omp `extension_ui_request` methods now have method-correct UI
+  (SelectDialog/InputDialog/EditorDialog/NotifyToast/OpenUrlDialog/
+  ExtensionStatusPills/title reflector). +12 daemon tests, +17 web tests.
 
 ## Current phase: 4 — product refinement (UX/a11y + independent review in parallel)
 
