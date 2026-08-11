@@ -2,6 +2,17 @@
 
 Last updated: 2026-08-11
 
+## 2026-08-11 (later) — model picker + thinking-level UI
+- Gap #3 closed: ModelPickerDialog replaces the bare composer selects —
+  provider-grouped model listbox with context-window/reasoning/cost metadata,
+  full 7-level thinking range (off/minimal/low/medium/high/xhigh/max), and
+  cycle buttons backed by new `model.cycle`/`thinking.cycle` daemon commands
+  (omp `cycle_model`/`cycle_thinking_level` RPC passthroughs).
+- Verified live against omp 17.2.13 + stub-llm: daemon model-commands.test.ts
+  (2 tests, real WS round-trip), 9 web unit tests, happy-path E2E rewritten
+  to drive the dialog. Suites: daemon 45/45, web 65/65, Playwright 17/17,
+  terminal 1/1.
+
 ## 2026-08-11 — upstream re-baseline + extension-UI dialogs
 - omp upgraded 17.2.12 → **17.2.13**; RPC type surface byte-identical, all
   suites re-run green against it (daemon 43/43, web vitest 56/56, Playwright

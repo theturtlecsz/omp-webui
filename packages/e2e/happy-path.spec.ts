@@ -7,12 +7,21 @@ test.describe('happy path', () => {
     await completeHelloTurn(page);
     await completeApprovedToolTurn(page);
 
-    const models = page.getByLabel('Model');
-    await expect(models.locator('option')).toHaveCount(2);
-    await expect(models.locator('option').nth(1)).toHaveAttribute('value', 'teststub:stub-1');
+    // Model picker: chip shows current model + thinking level, dialog lists
+    // the real omp model catalog, and picking a thinking level round-trips
+    // through omp (status bar reflects the refreshed state).
+    const chip = page.getByLabel('Model and thinking level');
+    await expect(chip).toContainText('Stub Model 1');
+    await chip.click();
 
-    const thinking = page.getByLabel('Thinking level');
-    await thinking.selectOption('high');
+    const dialog = page.getByRole('dialog', { name: 'Model & thinking' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('option')).toHaveCount(1);
+    await expect(dialog.getByRole('option', { name: /Stub Model 1/ })).toHaveAttribute('aria-selected', 'true');
+
+    await dialog.getByRole('radio', { name: 'high', exact: true }).click();
     await expect(page.getByText('Thinking: high', { exact: true })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await expect(dialog).not.toBeVisible();
   });
 });

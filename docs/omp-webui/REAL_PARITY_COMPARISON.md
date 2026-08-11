@@ -98,9 +98,9 @@ CLI subcommands `server install|uninstall|start|stop|restart|status`.
 | Paste image + vision-guard toast | ✅ 10 s cooldown warning | ✅ `[image omitted: model does not support vision]` placeholder | ✅ (different UX) |
 | Multi-tab xterm.js terminal | ✅ three-pane, tabs | ✅ tabs + rename + shortcuts + export/import | ✅ / ✅ + we exceed |
 | Project commands.json | ✅ (`save_commands`/`list_commands`) | ✅ (`.omp/commands.json` write + export/import UI) | ✅ |
-| Model listing + switch | ✅ `list_models` + `set_model` + cycle | ⚠ we only expose current model in header, no picker UI or cycle | ❌ gap |
+| Model listing + switch | ✅ `list_models` + `set_model` + cycle | ✅ ModelPickerDialog: provider-grouped listbox with metadata (ctx window, reasoning, cost) + model.cycle passthrough | ✅ |
 | Provider/model CRUD + API keys from UI | ✅ full CRUD | ❌ not implemented | ❌ gap |
-| Thinking-level control | ✅ set + cycle | ❌ not implemented | ❌ gap |
+| Thinking-level control | ✅ set + cycle | ✅ full 7-level range (off…xhigh/max) in ModelPickerDialog + thinking.cycle passthrough | ✅ |
 | Plugin dialogs (select/confirm/input/editor) | ✅ generic modal | ✅ method-specific dialogs (Select/Input/Editor + Approval for confirm) — see gap #4 note below | ✅ |
 | Path autocomplete for cwd | ✅ `complete_path` | ❌ our workspace picker is a list, no completion | ❌ minor gap |
 | Recent projects list | ✅ | ⚠ we list sessions per workspace but no "recent projects" MRU switcher | ❌ minor gap |
@@ -330,7 +330,7 @@ still exist in 0.17.1 — gap list below remains accurate.
 | --- | --- | --- |
 | 1 | Slash-command palette | ✅ shipped (Phase 8), parity held vs their new native palette |
 | 2 | `extension_ui_request` handling | ✅ shipped (all 11 methods, this session) |
-| 3 | Model picker + thinking-level control | ❌ open — daemon has `model.list`/`model.set`/`thinking.set`; no web UI |
+| 3 | Model picker + thinking-level control | ✅ shipped 2026-08-11 — ModelPickerDialog (provider-grouped, metadata-rich, full 7-level thinking range) + `model.cycle`/`thinking.cycle` daemon passthroughs; verified live against omp 17.2.13 (daemon test `model-commands.test.ts`, 9 web unit tests, happy-path E2E rewritten to drive the dialog) |
 | 4 | Input-request dialogs | ✅ shipped (this session) |
 | 5 | Provider/model CRUD | ❌ open |
 | 6 | Workspace file browser panel (+ their new `file_changed` push) | ❌ open — grew slightly |

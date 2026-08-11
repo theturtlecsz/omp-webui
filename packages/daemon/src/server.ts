@@ -533,6 +533,20 @@ export class Daemon {
         this.#send(client, { type: "response", correlationId: cmd.id, payload: { ok: true } });
         return;
       }
+      case "model.cycle": {
+        const rt = this.#requireRuntime(cmd);
+        const result = await rt.worker!.command({ type: "cycle_model" }, 15_000) as unknown;
+        await rt.refreshState();
+        this.#send(client, { type: "response", correlationId: cmd.id, payload: { ok: true, result } });
+        return;
+      }
+      case "thinking.cycle": {
+        const rt = this.#requireRuntime(cmd);
+        const result = await rt.worker!.command({ type: "cycle_thinking_level" }, 15_000) as unknown;
+        await rt.refreshState();
+        this.#send(client, { type: "response", correlationId: cmd.id, payload: { ok: true, result } });
+        return;
+      }
       case "settings.update": {
         this.#send(client, { type: "response", correlationId: cmd.id, payload: { ok: true } });
         return;

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Paperclip, Send, Square, Waypoints, X } from 'lucide-react';
+import { Paperclip, Send, Settings2, Square, Waypoints, X } from 'lucide-react';
 import type { DaemonClient } from '../lib/client';
 import { attachmentId, fileForUpload, hasKnownNoImageInput, imageForPrompt, type PendingAttachment } from '../lib/attachments';
 import { FileMention } from './FileMention';
+import { ModelPickerDialog } from './ModelPickerDialog';
 
 type Session = { sessionId: string; sessionFile: string };
 type Model = { id: string; provider: string; name?: string; capabilities?: unknown; input?: unknown };
@@ -26,12 +27,11 @@ export function Composer({ session, workspaceId, isStreaming, queuedPrompts, mod
   const key = session?.sessionFile;
   const [value, setValue] = useState(() => key ? localStorage.getItem(`omp-webui.draft.${key}`) ?? '' : '');
   const [mention, setMention] = useState('');
-  const [models, setModels] = useState<Model[]>([]);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const textRef = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   useEffect(() => { setValue(key ? localStorage.getItem(`omp-webui.draft.${key}`) ?? '' : ''); }, [key]);
-  useEffect(() => { if (session) client.command<{ models: Model[] }>('model.list', undefined, session.sessionId).then(v => setModels(v.models ?? [])).catch(() => setModels([])); }, [client, session]);
   const change = (next: string) => {
     setValue(next);
     if (key) { localStorage.setItem(`omp-webui.draft.${key}`, next); onDraft(key, next); }
@@ -105,8 +105,8 @@ export function Composer({ session, workspaceId, isStreaming, queuedPrompts, mod
     <input ref={picker} className="u-sr-only" type="file" multiple onChange={(event) => { void uploadFiles([...((event.target as HTMLInputElement).files ?? [])]); event.currentTarget.value = ''; }} />
     {!session && <small className="composer__hint">Open a session to send a message.</small>}
     <div className="composer__bar"><button type="button" className="icon-button" aria-label="Attach file" disabled={!session} onClick={() => picker.current?.click()}><Paperclip size={17} /></button>
-      <select aria-label="Model" disabled={!session} value={model ? `${model.provider}:${model.id}` : ''} onChange={e => { const [provider, modelId] = e.target.value.split(':'); if (session) client.command('model.set', { provider, modelId }, session.sessionId).catch(() => undefined); }}><option value="">{model?.name ?? model?.id ?? 'Model'}</option>{models.map(m => <option value={`${m.provider}:${m.id}`} key={`${m.provider}:${m.id}`}>{m.name ?? m.id}</option>)}</select>
-      <select aria-label="Thinking level" disabled={!session} value={thinkingLevel ?? 'off'} onChange={e => { if (session) client.command('thinking.set', { level: e.target.value }, session.sessionId).catch(() => undefined); }}>{['off', 'minimal', 'low', 'medium', 'high'].map(v => <option key={v}>{v}</option>)}</select>
+      <button type="button" className="model-chip" aria-label="Model and thinking level" disabled={!session} onClick={() => setModelPickerOpen(true)} title="Choose model and thinking level"><Settings2 size={14} /> {model?.name ?? model?.id ?? 'Model'} · {thinkingLevel ?? 'off'}</button>
+      {modelPickerOpen && session && <ModelPickerDialog sessionId={session.sessionId} client={client} currentModel={model} thinkingLevel={thinkingLevel} onClose={() => setModelPickerOpen(false)} />}
       {contextPercent !== undefined && <span className="context-meter" title={`${contextPercent}% context`}><i style={{ width: `${Math.min(100, contextPercent)}%` }} /> {contextPercent}%</span>}<span className="composer__spacer" />
       {isStreaming ? <><button type="button" className="button button--quiet" onClick={() => submit('prompt.steer')}>Steer</button><button type="button" className="button button--quiet" onClick={() => submit('prompt.queue')}><Waypoints size={15} /> Queue</button><button type="button" className="button button--danger" onClick={() => session && client.command('prompt.abort', undefined, session.sessionId)}><Square size={14} /> Abort</button></> : <button className="button button--primary" disabled={!session || (!value.trim() && attachments.length === 0)}><Send size={15} /> Send</button>}
     </div>
