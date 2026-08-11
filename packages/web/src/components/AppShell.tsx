@@ -10,13 +10,18 @@ import { GitPanel } from './GitPanel';
 import { PlanPanel } from './PlanPanel';
 import { StatusBar } from './StatusBar';
 import { ApprovalDialog } from './ApprovalDialog';
-import { QuestionDialog } from './QuestionDialog';
+import { SelectDialog } from './SelectDialog';
+import { InputDialog } from './InputDialog';
+import { EditorDialog } from './EditorDialog';
 import { useOverlayFocus } from './dialog-utils';
 import { TerminalPane } from './TerminalPane';
 import { attachmentId, type AttachmentRange, type PendingAttachment } from '../lib/attachments';
 import { FilePreviewDialog } from './FilePreviewDialog';
 import { SlashCommandPalette } from './SlashCommandPalette';
 import { ExtensionWidget } from './ExtensionWidget';
+import { NotifyToast } from './NotifyToast';
+import { OpenUrlDialog } from './OpenUrlDialog';
+import { ExtensionStatusPills } from './ExtensionStatusPills';
 
 type FilePreview = { path: string; content: string; truncated?: boolean; binary?: boolean; lineCount?: number };
 
@@ -72,7 +77,7 @@ function FilesPanel({ workspaceId, initialPath, onAdd }: { workspaceId?: string;
 
 export function AppShell() {
   const state = useAppStore();
-  const { setConnection, applyEvent, setWorkspaces, setSessions, setActiveSession, setDraft, removeInteraction } = useAppStore();
+  const { setConnection, applyEvent, setWorkspaces, setSessions, setActiveSession, setDraft, removeInteraction, dismissNotification, clearOpenUrl, clearEditorText } = useAppStore();
   const [sidebar, setSidebar] = useState(() => typeof window === 'undefined' || window.innerWidth >= 900);
   const [drawer, setDrawer] = useState(false);
   const [tab, setTab] = useState<'files' | 'git' | 'plan'>('files');
@@ -221,6 +226,33 @@ export function AppShell() {
     wasStreaming.current = state.sessionState.isStreaming;
   }, [state.sessionState.isStreaming]);
 
+  // Reflect omp setTitle into the browser tab title. Only fires when omp is
+  // started with PI_RPC_EMIT_TITLE set (real behavior gated in cli.js).
+  useEffect(() => {
+    const title = state.sessionState.extensionTitle;
+    if (typeof title !== 'string' || !title) return;
+    const previous = document.title;
+    document.title = `${title} — OMP WebUI`;
+    return () => { document.title = previous; };
+  }, [state.sessionState.extensionTitle]);
+
+  // Apply omp set_editor_text into the composer textarea. omp uses this for
+  // things like the "/edit last" flow. Fires the same input event as the slash
+  // palette so React state stays in sync, then clears the one-shot request.
+  useEffect(() => {
+    const text = state.sessionState.extensionEditorText;
+    if (typeof text !== 'string') return;
+    const el = document.getElementById('composer-input') as HTMLTextAreaElement | null;
+    if (el) {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+      setter?.call(el, text);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.focus();
+      el.setSelectionRange(text.length, text.length);
+    }
+    clearEditorText();
+  }, [state.sessionState.extensionEditorText, clearEditorText]);
+
   const closeDrawer = () => {
     setDrawer(false);
     if (window.innerWidth < 1280) requestAnimationFrame(() => drawerTrigger.current?.focus());
@@ -279,6 +311,7 @@ export function AppShell() {
         <div className="main-surface">
           <TerminalPane workspaceId={state.activeWorkspaceId} workspaceRoot={workspace?.root} client={daemonClient} visible={surface === 'terminal'} />
           <div id="conversation" className={`conversation ${surface === 'chat' ? '' : 'is-hidden'}`}>
+          <ExtensionStatusPills statuses={state.sessionState.extensionStatus ?? {}} />
           <ExtensionWidget widget={state.sessionState.extensionUI} />
           <Transcript
             items={state.transcript}
@@ -388,8 +421,8 @@ export function AppShell() {
           el.setSelectionRange(next.length, next.length);
         }}
       />
-      {pending?.kind === 'question' && (
-        <QuestionDialog
+      {pending?.kind === 'question' && pending.method === 'select' && (
+        <SelectDialog
           interaction={pending}
           onRespond={(value, cancelled) => {
             daemonClient.command('question.respond', cancelled ? { interactionId: pending.id, cancelled: true } : { interactionId: pending.id, value }, active?.sessionId)
@@ -397,6 +430,28 @@ export function AppShell() {
           }}
         />
       )}
+      {pending?.kind === 'question' && pending.method === 'input' && (
+        <InputDialog
+          interaction={pending}
+          onRespond={(value, cancelled) => {
+            daemonClient.command('question.respond', cancelled ? { interactionId: pending.id, cancelled: true } : { interactionId: pending.id, value }, active?.sessionId)
+              .finally(() => removeInteraction(pending.id));
+          }}
+        />
+      )}
+      {pending?.kind === 'question' && pending.method === 'editor' && (
+        <EditorDialog
+          interaction={pending}
+          onRespond={(value, cancelled) => {
+            daemonClient.command('question.respond', cancelled ? { interactionId: pending.id, cancelled: true } : { interactionId: pending.id, value }, active?.sessionId)
+              .finally(() => removeInteraction(pending.id));
+          }}
+        />
+      )}
+      {state.sessionState.extensionOpenUrl && (
+        <OpenUrlDialog request={state.sessionState.extensionOpenUrl} onDismiss={clearOpenUrl} />
+      )}
+      <NotifyToast notifications={state.sessionState.extensionNotifications ?? []} onDismiss={dismissNotification} />
     </div>
   );
 }

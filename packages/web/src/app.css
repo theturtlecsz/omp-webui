@@ -298,3 +298,26 @@
 .extension-widget__title { font-weight: 600; }
 .extension-widget__hint { color: var(--color-text-muted, #666); }
 .extension-widget__link { margin-inline-start: auto; color: var(--color-primary, #4a68ff); font-size: 12px; }
+
+/* --- Extension notify toasts (omp notify method) --- */
+.notify-toast-stack { position: fixed; top: var(--space-4, 16px); right: var(--space-4, 16px); z-index: 60; display: grid; gap: 8px; max-width: 360px; }
+.notify-toast { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--color-border, #e2e2e2); background: var(--color-surface, #fff); box-shadow: 0 6px 20px rgba(0,0,0,0.08); font-size: 13px; }
+.notify-toast--info { border-color: color-mix(in oklab, var(--color-primary, #4a68ff) 40%, var(--color-border, #e2e2e2)); }
+.notify-toast--warning { border-color: color-mix(in oklab, #d97706 55%, var(--color-border, #e2e2e2)); background: color-mix(in oklab, #d97706 6%, var(--color-surface, #fff)); }
+.notify-toast--error { border-color: color-mix(in oklab, #dc2626 60%, var(--color-border, #e2e2e2)); background: color-mix(in oklab, #dc2626 8%, var(--color-surface, #fff)); }
+.notify-toast__message { flex: 1; }
+.notify-toast__dismiss { border: 0; background: transparent; color: var(--color-text-muted, #666); cursor: pointer; padding: 2px; border-radius: 4px; }
+.notify-toast__dismiss:hover { background: var(--color-surface-hover, rgba(0,0,0,0.05)); }
+
+/* --- Extension status pills (omp setStatus method) --- */
+.extension-status-pills { display: flex; flex-wrap: wrap; gap: 6px; margin: var(--space-3, 12px) var(--space-4, 16px) 0; }
+.extension-status-pill { padding: 2px 8px; font-size: 12px; border-radius: 999px; border: 1px solid var(--color-border, #e2e2e2); background: color-mix(in oklab, var(--color-primary, #4a68ff) 4%, var(--color-surface, transparent)); color: var(--color-text-muted, #666); }
+
+/* --- Open URL dialog (omp open_url method, OAuth flows) --- */
+.open-url__link { display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; margin-block: var(--space-3, 12px); border: 1px solid var(--color-border, #e2e2e2); border-radius: 6px; background: var(--color-surface, transparent); word-break: break-all; text-decoration: none; color: var(--color-primary, #4a68ff); font-family: var(--font-mono, monospace); font-size: 12px; }
+.open-url__link:hover { background: var(--color-surface-hover, rgba(0,0,0,0.03)); }
+
+/* --- Editor dialog (multiline extension_ui_request editor) --- */
+.modal--editor { max-width: min(720px, 90vw); }
+.extension-editor__textarea { width: 100%; min-height: 220px; font-family: var(--font-mono, monospace); font-size: 13px; padding: 10px; border: 1px solid var(--color-border, #e2e2e2); border-radius: 6px; background: var(--color-surface, transparent); resize: vertical; }
+.modal__hint { color: var(--color-text-muted, #666); font-size: 12px; display: block; margin-top: 4px; }

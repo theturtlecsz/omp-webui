@@ -249,11 +249,37 @@ export function applyServerEvent(state: AppState, event: ServerEnvelope): AppSta
     case 'replay.completed':
       return { ...next, replayDone: event.sessionId ? { ...next.replayDone, [event.sessionId]: true } : next.replayDone };
     case 'session.updated': {
-      // Merge omp-forwarded session-scoped surfaces (slash commands, extension widgets, etc.)
+      // Merge omp-forwarded session-scoped surfaces (slash commands, extension widgets,
+      // notifications, status hints, title, editor-text override, OAuth open_url).
       // Only known keys are extracted so unknown ones do not pollute sessionState.
       const patch: Record<string, unknown> = {};
       if (Array.isArray(payload.availableCommands)) patch.availableCommands = payload.availableCommands;
       if (payload.extensionUI && typeof payload.extensionUI === 'object') patch.extensionUI = payload.extensionUI;
+      if (payload.extensionNotification && typeof payload.extensionNotification === 'object') {
+        const notification = payload.extensionNotification as Record<string, unknown>;
+        const id = String(notification.id ?? `notify_${Date.now()}`);
+        const notifyType = String(notification.notifyType ?? 'info');
+        const validated: 'info'|'warning'|'error' = notifyType === 'warning' || notifyType === 'error' ? notifyType : 'info';
+        const message = String(notification.message ?? '');
+        const existing = Array.isArray(next.sessionState.extensionNotifications) ? next.sessionState.extensionNotifications : [];
+        // Cap at 20 to bound memory; deduplicate by id so re-emits refresh instead of stack.
+        const filtered = existing.filter((toast) => toast.id !== id);
+        patch.extensionNotifications = [...filtered, { id, notifyType: validated, message, timestamp: Date.now() }].slice(-20);
+      }
+      if (payload.extensionStatus && typeof payload.extensionStatus === 'object') {
+        const statusPatch = payload.extensionStatus as Record<string, unknown>;
+        const statusKey = String(statusPatch.statusKey ?? '');
+        const statusText = typeof statusPatch.statusText === 'string' ? statusPatch.statusText : '';
+        if (statusKey) {
+          const merged = { ...(next.sessionState.extensionStatus ?? {}) };
+          if (statusText) merged[statusKey] = statusText;
+          else delete merged[statusKey];
+          patch.extensionStatus = merged;
+        }
+      }
+      if (typeof payload.extensionTitle === 'string') patch.extensionTitle = payload.extensionTitle;
+      if (typeof payload.extensionEditorText === 'string') patch.extensionEditorText = payload.extensionEditorText;
+      if (payload.extensionOpenUrl && typeof payload.extensionOpenUrl === 'object') patch.extensionOpenUrl = payload.extensionOpenUrl;
       if (Object.keys(patch).length === 0) return next;
       return { ...next, sessionState: { ...next.sessionState, ...patch } };
     }

@@ -96,7 +96,7 @@ CLI subcommands `server install|uninstall|start|stop|restart|status`.
 | Model listing + switch | ✅ `list_models` + `set_model` + cycle | ⚠ we only expose current model in header, no picker UI or cycle | ❌ gap |
 | Provider/model CRUD + API keys from UI | ✅ full CRUD | ❌ not implemented | ❌ gap |
 | Thinking-level control | ✅ set + cycle | ❌ not implemented | ❌ gap |
-| Plugin dialogs (select/confirm/input) | ✅ generic modal | ❌ not implemented — we don't handle `input_request` frames | ❌ gap |
+| Plugin dialogs (select/confirm/input/editor) | ✅ generic modal | ✅ method-specific dialogs (Select/Input/Editor + Approval for confirm) — see gap #4 note below | ✅ |
 | Path autocomplete for cwd | ✅ `complete_path` | ❌ our workspace picker is a list, no completion | ❌ minor gap |
 | Recent projects list | ✅ | ⚠ we list sessions per workspace but no "recent projects" MRU switcher | ❌ minor gap |
 | Sound effects | ✅ opt-in, per-event | ❌ | ❌ nice-to-have gap |
@@ -188,14 +188,42 @@ What this proves:
    `packages/e2e/slash-palette.spec.ts` (2 tests) against real omp v17.2.12.
 2. ~~**`extension_ui_request` handling**~~ — **shipped this session** for the
    `setWidget` method (ambient banner with registry-based labels; unknown
-   widgetKeys fall back to a neutral badge). Other extension-UI methods
-   (`confirm`, `select`, `input`, `editor`) were already routed through
-   approval/question dialogs prior to this session.
+   widgetKeys fall back to a neutral badge).
 3. **Model picker + thinking-level control** — `omp --mode rpc` exposes model
    selection through the same frame types the CLI uses; we should surface it.
-4. **Input-request dialogs** — omp will send `input_request` frames for tool
-   approvals and provider prompts; without a modal we cannot proceed on any
-   session that hits one interactively.
+4. ~~**Input-request dialogs**~~ — **shipped this session**. All 11 methods
+   emitted by real omp v17.2.12's `extension_ui_request` frame are now handled
+   (schema verified against `@oh-my-pi/pi-coding-agent@17.2.12`
+   `rpc-types.d.ts`):
+   - **Interactive (require a response frame back to omp)**
+     - `confirm` — routed to `ApprovalDialog`; response `{confirmed}`
+     - `select` with `["Approve","Deny"]` — normalized to `ApprovalDialog`
+     - `select` (general) — dedicated `SelectDialog` with arrow-key nav,
+       Enter to submit, no free-form textarea; response `{value}`
+     - `input` — `InputDialog` (single-line, Enter to submit); response `{value}`
+     - `editor` — new `EditorDialog` with `prefill` honored, `promptStyle`
+       switching between prompt (Enter submits) and code (Cmd/Ctrl-Enter
+       submits) modes; response `{value}` or `{cancelled:true}`
+   - **Fire-and-forget (informational; no response)**
+     - `notify` (info/warning/error) — new `NotifyToast` with per-type styling,
+       auto-dismiss for info/warning, sticky for error
+     - `setStatus` — new `ExtensionStatusPills` (keyed; empty statusText removes
+       the key)
+     - `setTitle` — reflected into `document.title` when omp is started with
+       `PI_RPC_EMIT_TITLE` set
+     - `set_editor_text` — applied to the composer textarea with a fired
+       `input` event so React state syncs; one-shot cleared after apply
+     - `open_url` — new `OpenUrlDialog` (OAuth login flows), honors omp's
+       recommendation to surface `launchUrl` as the copy target while the
+       anchor opens the full `url` in a new tab
+     - `setWidget` — pre-existing `ExtensionWidget` banner
+     - `cancel` — pre-existing (dismisses the pending interaction by targetId)
+
+   Verified by 12 daemon direct-drive tests over `SessionRuntime#onWorkerFrame`
+   (each real method + response frame shape), 17 web unit tests over the split
+   dialogs + reducer slices + notification/status merge behavior, and the
+   existing Playwright approval-dialog test through `completeApprovedToolTurn`
+   which continues to pass end-to-end against real omp v17.2.12.
 5. **Provider/model CRUD** — omp reads `~/.omp/agent/models.yml`; a UI that
    reads/writes it would match pi-web-ui's provider panel.
 6. **Recent-projects MRU switcher** in the sidebar (small; cosmetic parity).

@@ -209,11 +209,29 @@ export class SessionRuntime {
         this.#emit(pending.kind === "approval" ? "approval.requested" : "question.requested", { ...pending.payload, cancelled: true });
       }
     } else if (method === "notify") {
-      this.#emit("status.updated", { level: "info", message: frame.message ?? frame.title });
+      // Preserve notifyType so the UI can render info/warning/error variants.
+      const notifyType = typeof frame.notifyType === "string" ? String(frame.notifyType) : "info";
+      const message = String(frame.message ?? frame.title ?? "");
+      this.#emit("session.updated", { extensionNotification: { id, notifyType, message } });
     } else if (method === "setStatus") {
-      this.#emit("status.updated", { extensionStatus: frame });
-    } else if (method === "setWidget" || method === "setTitle" || method === "set_editor_text" || method === "open_url") {
-      // terminal-centric surfaces: acknowledge existence without a browser dialog
+      // Keyed status hints; empty statusText removes the entry for that key.
+      const statusKey = String(frame.statusKey ?? "");
+      const statusText = typeof frame.statusText === "string" ? String(frame.statusText) : "";
+      this.#emit("session.updated", { extensionStatus: { statusKey, statusText } });
+    } else if (method === "setTitle") {
+      this.#emit("session.updated", { extensionTitle: String(frame.title ?? "") });
+    } else if (method === "set_editor_text") {
+      this.#emit("session.updated", { extensionEditorText: String(frame.text ?? "") });
+    } else if (method === "open_url") {
+      this.#emit("session.updated", {
+        extensionOpenUrl: {
+          id,
+          url: String(frame.url ?? ""),
+          launchUrl: typeof frame.launchUrl === "string" ? String(frame.launchUrl) : undefined,
+          instructions: typeof frame.instructions === "string" ? String(frame.instructions) : "",
+        },
+      });
+    } else if (method === "setWidget") {
       this.#emit("session.updated", { extensionUI: { method, ...frame } });
     } else {
       this.#emit("status.updated", { level: "debug", message: `Unknown extension UI method: ${method.slice(0, 60)}` });
