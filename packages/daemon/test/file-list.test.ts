@@ -98,7 +98,7 @@ describe("file.list / file.changed", () => {
     const subListing = sub.payload as Listing;
     expect(subListing.path).toBe("src");
     expect(subListing.entries.map((e) => e.name)).toEqual(["app.ts"]);
-    expect(subListing.entries[0].path).toBe("src/app.ts");
+    expect(subListing.entries[0]?.path).toBe("src/app.ts");
     client.close();
   });
 

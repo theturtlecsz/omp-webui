@@ -18,6 +18,8 @@ import { TerminalPane } from './TerminalPane';
 import { attachmentId, type AttachmentRange, type PendingAttachment } from '../lib/attachments';
 import { FilePreviewDialog } from './FilePreviewDialog';
 import { FileTreePanel } from './FileTreePanel';
+import { QuestionsPanel } from './QuestionsPanel';
+import { recordRecentWorkspace } from './Sidebar';
 import { SlashCommandPalette } from './SlashCommandPalette';
 import { ExtensionWidget } from './ExtensionWidget';
 import { NotifyToast } from './NotifyToast';
@@ -81,7 +83,7 @@ export function AppShell() {
   const { setConnection, applyEvent, setWorkspaces, setSessions, setActiveSession, setDraft, removeInteraction, dismissNotification, clearOpenUrl, clearEditorText } = useAppStore();
   const [sidebar, setSidebar] = useState(() => typeof window === 'undefined' || window.innerWidth >= 900);
   const [drawer, setDrawer] = useState(false);
-  const [tab, setTab] = useState<'files' | 'git' | 'plan'>('files');
+  const [tab, setTab] = useState<'files' | 'git' | 'plan' | 'questions'>('files');
   const [file, setFile] = useState('');
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [daemonVersion, setDaemonVersion] = useState('');
@@ -267,13 +269,14 @@ export function AppShell() {
       workspaces: current.some((item) => item.id === nextWorkspace.id) ? current : [nextWorkspace, ...current],
     });
     localStorage.setItem('omp-webui.lastWorkspace', JSON.stringify({ root: nextWorkspace.root }));
+    recordRecentWorkspace(nextWorkspace.root);
     void loadSessions(nextWorkspace.id);
   };
 
   const onTabKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
-    const tabs: Array<'files' | 'git' | 'plan'> = ['files', 'git', 'plan'];
+    const tabs: Array<'files' | 'git' | 'plan' | 'questions'> = ['files', 'git', 'plan', 'questions'];
     const currentIndex = tabs.indexOf(tab);
     const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
     const next = tabs[nextIndex];
@@ -370,7 +373,7 @@ export function AppShell() {
       >
         <header>
           <div role="tablist" aria-label="Workspace panels" onKeyDown={onTabKeyDown}>
-            {(['files', 'git', 'plan'] as const).map((item) => (
+            {(['files', 'git', 'plan', 'questions'] as const).map((item) => (
               <button
                 id={`workspace-tab-${item}`}
                 key={item}
@@ -393,6 +396,7 @@ export function AppShell() {
           </>}
           {tab === 'git' && <GitPanel workspaceId={state.activeWorkspaceId} client={daemonClient} />}
           {tab === 'plan' && <PlanPanel todos={state.sessionState.todos} />}
+          {tab === 'questions' && <QuestionsPanel items={state.transcript} />}
         </div>
       </aside>
       <div className="screen-reader-live u-sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</div>

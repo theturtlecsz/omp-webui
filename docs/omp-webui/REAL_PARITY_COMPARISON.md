@@ -103,8 +103,8 @@ CLI subcommands `server install|uninstall|start|stop|restart|status`.
 | Provider/model CRUD + API keys from UI | ✅ full CRUD | ❌ not implemented | ❌ gap |
 | Thinking-level control | ✅ set + cycle | ✅ full 7-level range (off…xhigh/max) in ModelPickerDialog + thinking.cycle passthrough | ✅ |
 | Plugin dialogs (select/confirm/input/editor) | ✅ generic modal | ✅ method-specific dialogs (Select/Input/Editor + Approval for confirm) — see gap #4 note below | ✅ |
-| Path autocomplete for cwd | ✅ `complete_path` | ❌ our workspace picker is a list, no completion | ❌ minor gap |
-| Recent projects list | ✅ | ⚠ we list sessions per workspace but no "recent projects" MRU switcher | ❌ minor gap |
+| Path autocomplete for cwd | ✅ `complete_path` | ✅ daemon `path.complete` + datalist on open-path input | ✅ |
+| Recent projects list | ✅ | ✅ MRU (8 entries) in Sidebar | ✅ |
 | Sound effects | ✅ opt-in, per-event | ❌ | ❌ nice-to-have gap |
 | Self-update from UI | ✅ npm-based | ❌ (out of scope for us — omp installs via bun/curl) | N/A |
 | Install pi-agent from UI | ✅ | ❌ (out of scope — omp is a separate binary the user installs) | N/A |
@@ -335,9 +335,9 @@ still exist in 0.17.1 — gap list below remains accurate.
 | 4 | Input-request dialogs | ✅ shipped (this session) |
 | 5 | Provider/model CRUD | ❌ open |
 | 6 | Workspace file browser panel (+ their new `file_changed` push) | ✅ shipped 2026-08-11 — FileTreePanel (navigable dirs-first tree, preview + add-to-conversation per entry) backed by daemon `file.list` (boundary-contained, 500-entry cap) and a debounced non-recursive fs.watch that pushes `file.changed` to the listing client; E2E verifies external writes refresh the tree without reload |
-| 7 | Questions nav bar | ❌ new minor gap (0.16/0.17 addition) |
-| 8 | Recent-projects MRU switcher | ❌ open (cosmetic) |
-| 9 | Path autocomplete | ❌ open (cosmetic) |
+| 7 | Questions nav bar | ✅ shipped 2026-08-11 — Questions drawer tab lists user messages with click-to-jump (`data-msg-id` anchors + `msg-flash` highlight), mirroring pi-web-ui's 问题列表 |
+| 8 | Recent-projects MRU switcher | ✅ shipped 2026-08-11 — localStorage-backed MRU (8 entries, deduped, most-recent-first) recorded centrally on every workspace open, rendered in Sidebar with click-to-reopen |
+| 9 | Path autocomplete | ✅ shipped 2026-08-11 — daemon `path.complete` (host-dir completion, `~` expansion, hidden/node_modules filtered, 50-result cap) feeding a datalist on the open-path input |
 | 10 | i18n scaffold | ❌ open |
 | 11 | Sound effects | ❌ open (nice-to-have) |
 | 12 | Reference-mode attachments | ❌ open |

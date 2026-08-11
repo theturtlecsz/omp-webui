@@ -129,7 +129,7 @@ export function Transcript({ items, cards, connection, session, client, hasWorks
             // their completed Markdown rendering while a later turn streams.
             const streamingText = item.kind === 'assistant' && isStreaming && item.id === items.at(-1)?.id;
             return (
-              <li key={item.id}>
+              <li key={item.id} id={`msg-${item.id}`} data-msg-id={item.id}>
                 <article className={`message message--${item.kind}`} aria-label={isUser ? 'You' : 'OMP'}>
                   <header>
                     <span className={`message__speaker ${isUser ? 'message__speaker--user' : ''}`}>{isUser ? 'You' : 'OMP'}</span>

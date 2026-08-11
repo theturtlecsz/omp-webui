@@ -5,8 +5,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "node:crypto"; 
-import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, realpathSync, watch, type FSWatcher } from "node:fs";
-import { join, extname, resolve, relative, basename } from "node:path";
+import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, realpathSync, readdirSync, watch, type FSWatcher } from "node:fs";
+import { homedir } from "node:os";
+import { join, extname, resolve, relative, basename, sep } from "node:path";
 import { Store } from "./store.js";
 import { OmpWorker } from "./worker.js";
 import { SessionRuntime, normalizeMessage } from "./session-runtime.js";
@@ -478,6 +479,16 @@ export class Daemon {
         // the browser tree refreshes when omp tools or external editors write.
         this.#watchDirectory(client, boundary, listing.path, workspaceId);
         this.#send(client, { type: "response", correlationId: cmd.id, payload: listing });
+        return;
+      }
+      case "path.complete": {
+        // Host filesystem completion for the workspace picker. Not boundary-
+        // contained by design: opening a workspace starts outside any boundary.
+        this.#send(client, {
+          type: "response",
+          correlationId: cmd.id,
+          payload: { dirs: completeDirectories(String(p.prefix ?? "")) },
+        });
         return;
       }
       case "file.search": {
@@ -1183,4 +1194,39 @@ function sessionEntryMatches(entry: Record<string, unknown>, entryId: string): b
   const role = typeof message?.role === "string" ? message.role : "assistant";
   const timestamp = typeof message?.timestamp === "number" ? message.timestamp : undefined;
   return timestamp !== undefined && `${role}_${timestamp}` === entryId;
+}
+
+const MAX_PATH_COMPLETIONS = 50;
+
+/** Host-directory completion for the workspace picker. Expands `~`, lists the
+ * parent of the typed prefix, and returns matching directories (trailing slash
+ * so the picker can keep completing). Best-effort: unreadable dirs are skipped. */
+function completeDirectories(prefix: string): string[] {
+  let input = prefix.trim();
+  if (!input) return [];
+  if (input === "~" || input.startsWith("~/")) input = join(homedir(), input.slice(1));
+  const abs = resolve(input);
+  const endsWithSep = input.endsWith("/") || input.endsWith(sep);
+  const parent = endsWithSep ? abs : resolve(abs, "..");
+  const partial = endsWithSep ? "" : basename(abs);
+  let names: string[];
+  try {
+    names = readdirSync(parent, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules")
+      .map((e) => e.name)
+      .filter((n) => !partial || n.toLowerCase().startsWith(partial.toLowerCase()));
+  } catch {
+    return [];
+  }
+  names.sort();
+  const results: string[] = [];
+  for (const name of names) {
+    if (results.length >= MAX_PATH_COMPLETIONS) break;
+    const full = join(parent, name);
+    // Re-express ~-rooted results with ~ so the picker round-trips cleanly.
+    const home = homedir();
+    const shown = prefix.startsWith("~") && full.startsWith(home) ? "~" + full.slice(home.length) : full;
+    results.push(shown + "/");
+  }
+  return results;
 }

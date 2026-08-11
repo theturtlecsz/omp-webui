@@ -2,6 +2,22 @@
 
 Last updated: 2026-08-11
 
+## 2026-08-11 (night) — questions nav, recent workspaces, path autocomplete
+- Gaps #7/#8/#9 closed in one pass:
+  - **Questions tab** (drawer, 4th tab): lists user messages with click-to-jump
+    via new `data-msg-id` anchors on transcript items + `msg-flash` highlight.
+    Hidden `<file>` transport blocks are stripped from previews.
+  - **Recent workspaces MRU**: localStorage (8 entries, deduped, MRU-first),
+    recorded centrally in AppShell.changeWorkspace so every open path counts;
+    Sidebar renders a Recent section with click-to-reopen.
+  - **Path autocomplete**: daemon `path.complete` command (host-dir listing,
+    `~` expansion, hidden/node_modules filtered, 50 cap) feeding a datalist
+    on the Sidebar open-path input with 150 ms debounce.
+- a11y spec: Tab-loop cap raised 14 → 40 (MRU entries + 4th drawer tab add
+  tab stops; exact count is brittle by design).
+- Suites: daemon 52/52 (+4), web 81/81 (+9), Playwright 20/20 (+2),
+  terminal 1/1.
+
 ## 2026-08-11 (evening) — workspace file tree + live refresh
 - Gap #6 closed: FileTreePanel in the drawer Files tab — navigable
   dirs-first tree with per-entry preview + add-to-conversation, backed by

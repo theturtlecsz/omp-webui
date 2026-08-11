@@ -6,7 +6,9 @@ test.describe('accessibility smoke checks', () => {
     await openWorkspaceAndSession(page, testInfo);
 
     await page.getByRole('link', { name: 'Skip to conversation' }).focus();
-    for (let i = 0; i < 14; i++) {
+    // Generous cap: the sidebar grew an MRU list + the drawer a 4th tab, so the
+    // exact tab count is brittle by design. We loop until the composer is hit.
+    for (let i = 0; i < 40; i++) {
       if (await page.getByLabel('Message OMP').evaluate((node) => document.activeElement === node)) break;
       await page.keyboard.press('Tab');
     }

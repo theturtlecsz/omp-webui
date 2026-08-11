@@ -130,6 +130,7 @@ export type ClientCommandType =
   | "file.search"
   | "file.read"
   | "file.list"
+  | "path.complete"
   | "file.upload"
   | "git.status"
   | "git.diff"
