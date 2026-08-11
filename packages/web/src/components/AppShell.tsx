@@ -17,6 +17,7 @@ import { useOverlayFocus } from './dialog-utils';
 import { TerminalPane } from './TerminalPane';
 import { attachmentId, type AttachmentRange, type PendingAttachment } from '../lib/attachments';
 import { FilePreviewDialog } from './FilePreviewDialog';
+import { FileTreePanel } from './FileTreePanel';
 import { SlashCommandPalette } from './SlashCommandPalette';
 import { ExtensionWidget } from './ExtensionWidget';
 import { NotifyToast } from './NotifyToast';
@@ -61,8 +62,8 @@ function FilesPanel({ workspaceId, initialPath, onAdd }: { workspaceId?: string;
     .catch(() => setPreview({ path: target, content: 'Could not read this file.' }));
 
   return (
-    <section className="panel" aria-label="Files">
-      <header><h2>Files</h2></header>
+    <section className="panel" aria-label="Find file">
+      <header><h2>Find file</h2></header>
       <div className="file-preview__input">
         <input aria-label="File path" value={path} onChange={(event) => setPath(event.target.value)} placeholder="src/app.ts" />
         <button className="button button--quiet" onClick={() => void read()}>Open</button>
@@ -386,7 +387,10 @@ export function AppShell() {
           <button className="icon-button" aria-label="Close workspace drawer" onClick={closeDrawer}><X size={18} /></button>
         </header>
         <div id={`workspace-panel-${tab}`} role="tabpanel" aria-labelledby={`workspace-tab-${tab}`}>
-          {tab === 'files' && <FilesPanel workspaceId={state.activeWorkspaceId} initialPath={file} onAdd={(path, range) => setAttachments((current) => [...current, { id: attachmentId(), name: path.split('/').at(-1) ?? path, path, range }])} />}
+          {tab === 'files' && <>
+            <FileTreePanel workspaceId={state.activeWorkspaceId} onAdd={(path, range) => setAttachments((current) => [...current, { id: attachmentId(), name: path.split('/').at(-1) ?? path, path, range }])} />
+            <FilesPanel workspaceId={state.activeWorkspaceId} initialPath={file} onAdd={(path, range) => setAttachments((current) => [...current, { id: attachmentId(), name: path.split('/').at(-1) ?? path, path, range }])} />
+          </>}
           {tab === 'git' && <GitPanel workspaceId={state.activeWorkspaceId} client={daemonClient} />}
           {tab === 'plan' && <PlanPanel todos={state.sessionState.todos} />}
         </div>

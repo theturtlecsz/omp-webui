@@ -8,7 +8,7 @@ test.describe('snapshot restore', () => {
     await completeApprovedToolTurn(page);
 
     await page.reload();
-    const conversation = page.getByLabel('Conversation');
+    const conversation = page.getByRole('main', { name: 'Conversation' });
     await expect(conversation.getByText('say hello', { exact: true })).toHaveCount(1);
     await expect(conversation.getByText(/Hello from the stub model/)).toHaveCount(1);
     await expect(conversation.locator('.tool-card')).toHaveCount(1);

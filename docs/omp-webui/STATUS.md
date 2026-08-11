@@ -2,6 +2,25 @@
 
 Last updated: 2026-08-11
 
+## 2026-08-11 (evening) — workspace file tree + live refresh
+- Gap #6 closed: FileTreePanel in the drawer Files tab — navigable
+  dirs-first tree with per-entry preview + add-to-conversation, backed by
+  daemon `file.list` (boundary-contained single-level listing, dirs first,
+  500-entry cap, node_modules/.git skipped).
+- Live refresh: listing a directory attaches a debounced (400 ms)
+  non-recursive fs.watch on the daemon; external writes push `file.changed`
+  to the listing client and the tree re-lists without a reload. Watch is
+  per-client and torn down on socket close / daemon stop.
+- Old path-input panel kept below as "Find file" (search remains useful).
+- Tests: daemon file-list.test.ts (3: listing shape/order, boundary-escape
+  rejection, watch push), web file-tree.test.tsx (7: nav, live-refresh
+  filtering, preview, add, errors), new parity.spec.ts E2E verifies an
+  external write appears in the tree against the real daemon. E2E selector
+  hardening: `getByLabel('Conversation')` → `getByRole('main', …)` after the
+  new per-file add buttons introduced an a11y name collision.
+- Suites: daemon 48/48 (+3), web 72/72 (+7), Playwright 18/18 (+1),
+  terminal 1/1.
+
 ## 2026-08-11 (later) — model picker + thinking-level UI
 - Gap #3 closed: ModelPickerDialog replaces the bare composer selects —
   provider-grouped model listbox with context-window/reasoning/cost metadata,

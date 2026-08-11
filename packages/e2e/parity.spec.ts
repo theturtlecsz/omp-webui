@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { openWorkspaceAndSession, sendPrompt } from './helpers';
 
 // Minimal valid PNG (1x1 px, red) for paste/upload attachment tests.
@@ -9,13 +11,13 @@ test.describe('parity: attachments and images', () => {
     const { workspace } = await openWorkspaceAndSession(page, testInfo);
 
     // Queue README.md via the Files panel "+" control.
-    await page.getByLabel('Files').getByLabel('File path').fill('README.md');
+    await page.getByLabel('Find file').getByLabel('File path').fill('README.md');
     await page.getByRole('button', { name: 'Add README.md to conversation' }).first().click();
     const chips = page.getByLabel('Attachments');
     await expect(chips.getByText('File: README.md')).toBeVisible();
 
     await sendPrompt(page, 'look at this');
-    const conversation = page.getByLabel('Conversation');
+    const conversation = page.getByRole('main', { name: 'Conversation' });
     // Sent attachment renders as a collapsible card on the user message.
     const card = conversation.locator('details').filter({ hasText: 'README.md' });
     await expect(card).toBeVisible();
@@ -43,13 +45,13 @@ test.describe('parity: attachments and images', () => {
     await expect(chips.getByText('Image: shot.png')).toBeVisible();
 
     await sendPrompt(page, 'describe the attachment');
-    await expect(page.getByLabel('Conversation').getByText('I received an image attachment.')).toBeVisible();
+    await expect(page.getByRole('main', { name: 'Conversation' }).getByText('I received an image attachment.')).toBeVisible();
   });
 
   test('file preview modal selects a line range that becomes an attachment chip', async ({ page }, testInfo) => {
     await openWorkspaceAndSession(page, testInfo);
 
-    await page.getByLabel('Files').getByLabel('File path').fill('README.md');
+    await page.getByLabel('Find file').getByLabel('File path').fill('README.md');
     await page.getByRole('button', { name: 'README.md', exact: false }).first().click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
@@ -64,8 +66,31 @@ test.describe('parity: attachments and images', () => {
     await expect(chips.getByText('lines 1–1')).toBeVisible();
 
     await sendPrompt(page, 'what does the file say');
-    const card = page.getByLabel('Conversation').locator('details').filter({ hasText: 'README.md' });
+    const card = page.getByRole('main', { name: 'Conversation' }).locator('details').filter({ hasText: 'README.md' });
     await expect(card).toBeVisible();
+  });
+});
+
+test.describe('parity: workspace file tree', () => {
+  test('browses the workspace, previews a file, and live-refreshes on external writes', async ({ page }, testInfo) => {
+    const { workspace } = await openWorkspaceAndSession(page, testInfo);
+
+    // The tree lists the fixture root; the entry carries a per-file add button.
+    const tree = page.getByRole('list', { name: 'Directory contents' });
+    await expect(tree.getByText('README.md')).toBeVisible();
+    await expect(page.getByLabel('Directory path')).toHaveText('/');
+
+    // Clicking a file entry opens the preview dialog.
+    await tree.getByRole('button', { name: /README\.md .*preview/ }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('# E2E workspace')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Close' }).click();
+
+    // External write (as an editor or omp tool would do) triggers the daemon's
+    // fs.watch push and the tree refreshes without manual reload.
+    writeFileSync(join(workspace, 'agent-output.txt'), 'written externally\n');
+    await expect(tree.getByText('agent-output.txt')).toBeVisible({ timeout: 10_000 });
   });
 });
 
@@ -74,7 +99,7 @@ test.describe('parity: markdown rendering', () => {
     await openWorkspaceAndSession(page, testInfo);
     await sendPrompt(page, 'show me markdown');
 
-    const conversation = page.getByLabel('Conversation');
+    const conversation = page.getByRole('main', { name: 'Conversation' });
     const assistant = conversation.locator('article.message--assistant').last();
     await expect(assistant.getByRole('table')).toBeVisible();
     await expect(assistant.locator('strong', { hasText: 'bold' })).toBeVisible();
@@ -88,7 +113,7 @@ test.describe('parity: edit-and-re-ask', () => {
   test('editing a prior user message forks the session and submits the edit', async ({ page }, testInfo) => {
     await openWorkspaceAndSession(page, testInfo);
     await sendPrompt(page, 'say hello');
-    const conversation = page.getByLabel('Conversation');
+    const conversation = page.getByRole('main', { name: 'Conversation' });
     await expect(conversation.getByText(/Hello from the stub model/)).toBeVisible();
 
     await conversation.getByLabel('Edit and re-ask').first().click();
@@ -108,7 +133,7 @@ test.describe('parity: long-chat collapsing', () => {
   test('collapses older messages past 30, keeps the latest 15 full, and expands on click', async ({ page }, testInfo) => {
     test.setTimeout(180_000);
     await openWorkspaceAndSession(page, testInfo);
-    const conversation = page.getByLabel('Conversation');
+    const conversation = page.getByRole('main', { name: 'Conversation' });
 
     for (let i = 1; i <= 17; i++) {
       await sendPrompt(page, `turn ${i}`);
@@ -145,6 +170,6 @@ test.describe('parity: terminal pane (daemon without --terminal)', () => {
     // Chat remains fully functional after the rejected command.
     await page.getByRole('button', { name: 'Chat', exact: true }).click();
     await sendPrompt(page, 'say hello');
-    await expect(page.getByLabel('Conversation').getByText(/Hello from the stub model/)).toBeVisible();
+    await expect(page.getByRole('main', { name: 'Conversation' }).getByText(/Hello from the stub model/)).toBeVisible();
   });
 });

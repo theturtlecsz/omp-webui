@@ -5,12 +5,12 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "node:crypto"; 
-import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, realpathSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, realpathSync, watch, type FSWatcher } from "node:fs";
 import { join, extname, resolve, relative, basename } from "node:path";
 import { Store } from "./store.js";
 import { OmpWorker } from "./worker.js";
 import { SessionRuntime, normalizeMessage } from "./session-runtime.js";
-import { WorkspaceBoundary, PathEscapeError, readWorkspaceFile, searchWorkspaceFiles, gitStatus, gitDiff } from "./workspace.js";
+import { WorkspaceBoundary, PathEscapeError, readWorkspaceFile, searchWorkspaceFiles, listWorkspaceDirectory, gitStatus, gitDiff } from "./workspace.js";
 import { listSessionFiles, readSessionEntries, sessionDirForCwd } from "./session-files.js";
 import { PROTOCOL_VERSION, type ClientCommand, type Envelope } from "./protocol.js";
 import { TerminalManager } from "./terminal-manager.js";
@@ -55,6 +55,7 @@ interface Client {
   ws: WebSocket;
   lastSeen: Map<string, number>; // sessionId -> last acked sequence
   alive: boolean;
+  fileWatch?: { watcher: FSWatcher; dir: string; timer?: NodeJS.Timeout };
 }
 
 const MIME: Record<string, string> = {
@@ -130,6 +131,7 @@ export class Daemon {
       rt.dispose();
     }
     for (const c of this.#clients) {
+      this.#stopFileWatch(c);
       try { c.ws.terminate(); } catch { /* already closed */ }
     }
     this.#clients.clear();
@@ -248,7 +250,7 @@ export class Daemon {
     this.#clients.add(client);
     ws.on("pong", () => { client.alive = true; });
     ws.on("message", (data) => this.#onClientMessage(client, data));
-    ws.on("close", () => { this.#terminals.disconnect(client.id); this.#clients.delete(client); });
+    ws.on("close", () => { this.#stopFileWatch(client); this.#terminals.disconnect(client.id); this.#clients.delete(client); });
     this.#send(client, {
       type: "connection.ready",
       payload: { clientId: client.id, protocolVersion: PROTOCOL_VERSION },
@@ -466,6 +468,16 @@ export class Daemon {
         const response = p.cancelled === true ? { cancelled: true } : { value: String(p.value ?? "") };
         const ok = rt.respondToInteraction(String(p.interactionId ?? ""), response);
         this.#send(client, { type: "response", correlationId: cmd.id, payload: { ok } });
+        return;
+      }
+      case "file.list": {
+        const workspaceId = String(p.workspaceId ?? "");
+        const boundary = this.#requireBoundary(workspaceId);
+        const listing = listWorkspaceDirectory(boundary, String(p.path ?? ""));
+        // Listing a directory attaches a (debounced, non-recursive) watch so
+        // the browser tree refreshes when omp tools or external editors write.
+        this.#watchDirectory(client, boundary, listing.path, workspaceId);
+        this.#send(client, { type: "response", correlationId: cmd.id, payload: listing });
         return;
       }
       case "file.search": {
@@ -842,6 +854,37 @@ export class Daemon {
     b = new WorkspaceBoundary(wsRow.root);
     this.#boundaries.set(workspaceId, b);
     return b;
+  }
+
+  #stopFileWatch(client: Client): void {
+    if (client.fileWatch?.timer) clearTimeout(client.fileWatch.timer);
+    try { client.fileWatch?.watcher.close(); } catch { /* already closed */ }
+    client.fileWatch = undefined;
+  }
+
+  /** Watch the client's currently-listed directory (non-recursive). Emits a
+   * debounced file.changed event so the web tree can re-list on demand. */
+  #watchDirectory(client: Client, boundary: WorkspaceBoundary, relPath: string, workspaceId: string): void {
+    const abs = boundary.resolveContained(relPath || ".");
+    if (client.fileWatch?.dir === abs) return;
+    this.#stopFileWatch(client);
+    let watcher: FSWatcher;
+    try {
+      watcher = watch(abs, { persistent: false });
+    } catch {
+      return; // dir vanished between list and watch; next list retries
+    }
+    const record = { watcher, dir: abs, timer: undefined as NodeJS.Timeout | undefined };
+    client.fileWatch = record;
+    watcher.on("error", () => this.#stopFileWatch(client));
+    watcher.on("change", () => {
+      if (record.timer) clearTimeout(record.timer);
+      record.timer = setTimeout(() => {
+        if (client.ws.readyState === WebSocket.OPEN) {
+          this.#send(client, { type: "file.changed", payload: { workspaceId, path: relPath } });
+        }
+      }, 400);
+    });
   }
 
   #requireRuntime(cmd: ClientCommand): SessionRuntime {

@@ -94,6 +94,7 @@ CLI subcommands `server install|uninstall|start|stop|restart|status`.
 | Fork on edit-message | ✅ `edit_message` server-side fork | ✅ `session.reask` fork with parent link | ✅ |
 | Long-chat virtualization | ✅ collapse older, keep last 15 | ✅ collapse older, keep last N | ✅ |
 | File preview with line ranges | ✅ | ✅ (parity spec) | ✅ |
+| Workspace file browser + live refresh | ✅ tree + `file_changed` push | ✅ FileTreePanel + `file.list` + debounced fs.watch push | ✅ |
 | Attach files (inline + reference) | ✅ | ✅ inline; reference mode = attach-as-URL not implemented | ⚠ minor UX gap |
 | Paste image + vision-guard toast | ✅ 10 s cooldown warning | ✅ `[image omitted: model does not support vision]` placeholder | ✅ (different UX) |
 | Multi-tab xterm.js terminal | ✅ three-pane, tabs | ✅ tabs + rename + shortcuts + export/import | ✅ / ✅ + we exceed |
@@ -333,7 +334,7 @@ still exist in 0.17.1 — gap list below remains accurate.
 | 3 | Model picker + thinking-level control | ✅ shipped 2026-08-11 — ModelPickerDialog (provider-grouped, metadata-rich, full 7-level thinking range) + `model.cycle`/`thinking.cycle` daemon passthroughs; verified live against omp 17.2.13 (daemon test `model-commands.test.ts`, 9 web unit tests, happy-path E2E rewritten to drive the dialog) |
 | 4 | Input-request dialogs | ✅ shipped (this session) |
 | 5 | Provider/model CRUD | ❌ open |
-| 6 | Workspace file browser panel (+ their new `file_changed` push) | ❌ open — grew slightly |
+| 6 | Workspace file browser panel (+ their new `file_changed` push) | ✅ shipped 2026-08-11 — FileTreePanel (navigable dirs-first tree, preview + add-to-conversation per entry) backed by daemon `file.list` (boundary-contained, 500-entry cap) and a debounced non-recursive fs.watch that pushes `file.changed` to the listing client; E2E verifies external writes refresh the tree without reload |
 | 7 | Questions nav bar | ❌ new minor gap (0.16/0.17 addition) |
 | 8 | Recent-projects MRU switcher | ❌ open (cosmetic) |
 | 9 | Path autocomplete | ❌ open (cosmetic) |

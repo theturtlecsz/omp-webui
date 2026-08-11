@@ -44,7 +44,7 @@ test.describe('terminal pane (daemon with --terminal)', () => {
 
     // Switching to Chat and back keeps the terminal mounted (xterm stays live).
     await page.getByRole('button', { name: 'Chat', exact: true }).click();
-    await expect(page.getByLabel('Conversation')).toBeVisible();
+    await expect(page.getByRole('main', { name: 'Conversation' })).toBeVisible();
     await page.getByRole('button', { name: 'Terminal', exact: true }).click();
     await expect(pane.locator('.xterm-rows').first()).toContainText('E2E_TERMINAL_OK');
 

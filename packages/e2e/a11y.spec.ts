@@ -14,7 +14,7 @@ test.describe('accessibility smoke checks', () => {
 
     await page.getByLabel('Message OMP').fill('say hello');
     await page.getByLabel('Message OMP').press('Enter');
-    await expect(page.getByLabel('Conversation').getByText(/Hello from the stub model/)).toBeVisible();
+    await expect(page.getByRole('main', { name: 'Conversation' }).getByText(/Hello from the stub model/)).toBeVisible();
 
     await sendPrompt(page, 'please use a tool now');
     const dialog = page.getByRole('dialog', { name: 'Allow OMP to continue?' });

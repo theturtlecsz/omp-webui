@@ -24,7 +24,7 @@ test.describe('network recovery', () => {
     await context.setOffline(false);
 
     await expect(page.getByText('online', { exact: true })).toBeVisible();
-    await expect(page.getByLabel('Conversation').getByText('say hello', { exact: true })).toHaveCount(1);
-    await expect(page.getByLabel('Conversation').getByText(/Hello from the stub model/)).toHaveCount(1);
+    await expect(page.getByRole('main', { name: 'Conversation' }).getByText('say hello', { exact: true })).toHaveCount(1);
+    await expect(page.getByRole('main', { name: 'Conversation' }).getByText(/Hello from the stub model/)).toHaveCount(1);
   });
 });

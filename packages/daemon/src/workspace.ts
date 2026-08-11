@@ -155,6 +155,44 @@ export function searchWorkspaceFiles(boundary: WorkspaceBoundary, query: string)
   return results.sort();
 }
 
+export interface DirectoryEntry {
+  name: string;
+  path: string;             // workspace-relative, posix separators
+  kind: "file" | "dir" | "symlink";
+  size: number;
+  modifiedMs: number;
+}
+
+export interface DirectoryListing {
+  path: string;             // workspace-relative dir, "" for root
+  entries: DirectoryEntry[];
+  truncated: boolean;
+}
+
+const MAX_LIST_ENTRIES = 500;
+
+/** Single-level directory listing. Dirs first, then files, alpha within each.
+ * Symlinks that escape the boundary are dropped by resolveContained. */
+export function listWorkspaceDirectory(boundary: WorkspaceBoundary, dir: string): DirectoryListing {
+  const abs = boundary.resolveContained(dir || ".");
+  const stat = statSync(abs);
+  if (!stat.isDirectory()) throw new Error(`not a directory: ${dir || "/"}`);
+  const entries: DirectoryEntry[] = [];
+  let truncated = false;
+  for (const e of readdirSync(abs, { withFileTypes: true })) {
+    if (entries.length >= MAX_LIST_ENTRIES) { truncated = true; break; }
+    if (e.name === "node_modules" || e.name === ".git") continue;
+    const full = join(abs, e.name);
+    let s;
+    try { s = statSync(full); } catch { continue; } // dangling symlink or race
+    const kind: DirectoryEntry["kind"] = e.isSymbolicLink() ? "symlink" : s.isDirectory() ? "dir" : "file";
+    entries.push({ name: e.name, path: boundary.relative(full), kind, size: s.isFile() ? s.size : 0, modifiedMs: Math.round(s.mtimeMs) });
+  }
+  entries.sort((a, b) => (a.kind === "dir" ? 0 : 1) - (b.kind === "dir" ? 0 : 1) || a.name.localeCompare(b.name));
+  const relDir = boundary.relative(abs);
+  return { path: relDir === "." ? "" : relDir, entries, truncated };
+}
+
 export interface GitStatusEntry { path: string; status: string; staged: boolean }
 
 export function gitStatus(boundary: WorkspaceBoundary): { entries: GitStatusEntry[]; branch: string } {

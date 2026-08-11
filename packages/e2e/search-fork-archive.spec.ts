@@ -18,7 +18,7 @@ test.describe('session management', () => {
     await expect(page.locator('.session-row')).toHaveCount(1);
 
     await page.getByLabel('Fork from message').first().click();
-    const conversation = page.getByLabel('Conversation');
+    const conversation = page.getByRole('main', { name: 'Conversation' });
     await expect(conversation.getByText('say hello', { exact: true })).toBeVisible();
     await expect(conversation.getByText(/Hello from the stub model/)).toHaveCount(0);
   });
