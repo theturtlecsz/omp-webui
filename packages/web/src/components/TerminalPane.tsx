@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Pencil, Play, Plus, Save, SquareTerminal, Trash2, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronDown, Download, Pencil, Play, Plus, Save, SquareTerminal, Trash2, Upload, X } from 'lucide-react';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
@@ -87,6 +87,60 @@ function newCommand(): ProjectCommand {
   return { id: localId(), name: 'New command', command: '' };
 }
 
+function TerminalTab({
+  session,
+  index,
+  active,
+  onActivate,
+  onClose,
+  onRename,
+}: {
+  session: Session;
+  index: number;
+  active: boolean;
+  onActivate: () => void;
+  onClose: () => void;
+  onRename: (title: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(session.title);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (editing) { inputRef.current?.focus(); inputRef.current?.select(); }
+  }, [editing]);
+  const commit = () => { onRename(draft); setEditing(false); };
+  const cancel = () => { setDraft(session.title); setEditing(false); };
+  return (
+    <div className={`terminal-tab ${active ? 'is-active' : ''}`}>
+      {editing ? (
+        <input
+          ref={inputRef}
+          aria-label={`Rename ${session.title}`}
+          className="terminal-tab__rename"
+          value={draft}
+          maxLength={40}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') { event.preventDefault(); commit(); }
+            else if (event.key === 'Escape') { event.preventDefault(); cancel(); }
+          }}
+          onBlur={commit}
+        />
+      ) : (
+        <button
+          aria-label={`Open ${session.title}`}
+          title={`${session.title} — double-click to rename`}
+          onClick={onActivate}
+          onDoubleClick={() => { setDraft(session.title); setEditing(true); }}
+        >
+          <ChevronDown size={14} /><span>{index + 1}</span>
+        </button>
+      )}
+      <button aria-label={`Close ${session.title}`} title="Close (Ctrl/Cmd+W when active)" onClick={onClose}><X size={14} /></button>
+    </div>
+  );
+}
+
 export function TerminalPane({ workspaceId, workspaceRoot, client, visible = true }: { workspaceId?: string; workspaceRoot?: string; client: DaemonClient; visible?: boolean }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeLocalId, setActiveLocalId] = useState<string>();
@@ -130,10 +184,18 @@ export function TerminalPane({ workspaceId, workspaceRoot, client, visible = tru
     if (handle) handles.current.set(terminalId, handle);
     else handles.current.delete(terminalId);
   };
-  const kill = (session: Session) => {
+  const kill = useCallback((session: Session) => {
     if (session.terminalId) void client.command('terminal.kill', { workspaceId, terminalId: session.terminalId }).catch((error) => setNotice(error instanceof Error ? error.message : 'Could not close terminal.'));
-    setSessions((current) => current.filter((item) => item.localId !== session.localId));
-    if (activeLocalId === session.localId) setActiveLocalId(sessions.find((item) => item.localId !== session.localId)?.localId);
+    setSessions((current) => {
+      const next = current.filter((item) => item.localId !== session.localId);
+      if (activeLocalId === session.localId) setActiveLocalId(next[0]?.localId);
+      return next;
+    });
+  }, [activeLocalId, client, workspaceId]);
+  const rename = (localSessionId: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    setSessions((current) => current.map((session) => session.localId === localSessionId ? { ...session, title: trimmed.slice(0, 40) } : session));
   };
   const persist = (next: ProjectCommand[]) => {
     if (!workspaceId) return;
@@ -142,6 +204,88 @@ export function TerminalPane({ workspaceId, workspaceRoot, client, visible = tru
       .then(({ commands: saved }) => setCommands(saved))
       .catch((error) => setNotice(error instanceof Error ? error.message : 'Could not save project commands.'));
   };
+  const exportCommands = () => {
+    const blob = new Blob([`${JSON.stringify({ commands }, null, 2)}\n`], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'commands.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    setNotice(`Exported ${commands.length} command${commands.length === 1 ? '' : 's'}.`);
+  };
+  const importInput = useRef<HTMLInputElement>(null);
+  const importCommands = async (file: File) => {
+    try {
+      const text = await file.text();
+      const parsed: unknown = JSON.parse(text);
+      const raw = Array.isArray(parsed) ? parsed : (parsed && typeof parsed === 'object' ? (parsed as { commands?: unknown }).commands : undefined);
+      if (!Array.isArray(raw)) throw new Error('File must contain a `commands` array.');
+      // Re-key on import so ids from another repo can't collide with existing ones.
+      const incoming: ProjectCommand[] = raw.map((item) => {
+        const record = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+        const name = String(record.name ?? '').trim();
+        const command = String(record.command ?? '');
+        const cwd = typeof record.cwd === 'string' ? record.cwd : undefined;
+        if (!name || !command) throw new Error('Every command needs a name and command string.');
+        return { id: localId(), name: name.slice(0, 80), command, cwd };
+      });
+      // Merge by name: incoming replaces same-named entries; the rest is appended.
+      const merged = [
+        ...commands.filter((existing) => !incoming.some((i) => i.name === existing.name)),
+        ...incoming,
+      ];
+      persist(merged);
+      setNotice(`Imported ${incoming.length} command${incoming.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? `Import failed: ${error.message}` : 'Import failed.');
+    }
+  };
+  // Keyboard shortcuts (Ctrl on Linux/Windows, Cmd on macOS):
+  //   Mod+T           new shell
+  //   Mod+W           close active shell
+  //   Mod+1..9        switch to that tab
+  //   Mod+Shift+[/]   previous / next tab
+  useEffect(() => {
+    if (!visible) return;
+    const onKey = (event: KeyboardEvent) => {
+      const mod = event.metaKey || event.ctrlKey;
+      if (!mod) return;
+      const target = event.target as HTMLElement | null;
+      // Don't hijack while typing in an input/textarea/contenteditable
+      // (composer, command editor, tab rename all use plain inputs).
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      if (event.key.toLowerCase() === 't' && !event.shiftKey) {
+        event.preventDefault();
+        addShell();
+        return;
+      }
+      if (event.key.toLowerCase() === 'w' && !event.shiftKey) {
+        if (!active) return;
+        event.preventDefault();
+        kill(active);
+        return;
+      }
+      if (/^[1-9]$/.test(event.key) && !event.shiftKey) {
+        const index = Number(event.key) - 1;
+        if (index < sessions.length) { event.preventDefault(); setActiveLocalId(sessions[index].localId); }
+        return;
+      }
+      if (event.shiftKey && (event.key === ']' || event.key === '[')) {
+        if (sessions.length < 2 || !active) return;
+        event.preventDefault();
+        const currentIndex = sessions.findIndex((session) => session.localId === active.localId);
+        const delta = event.key === ']' ? 1 : -1;
+        const nextIndex = (currentIndex + delta + sessions.length) % sessions.length;
+        setActiveLocalId(sessions[nextIndex].localId);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visible, sessions, active, kill]);
+
   const run = (command: ProjectCommand) => {
     if (!active?.terminalId) { setNotice('Open a shell before running a project command.'); return; }
     const text = command.command.replaceAll('${pwd}', workspaceRoot ?? '');
@@ -152,7 +296,13 @@ export function TerminalPane({ workspaceId, workspaceRoot, client, visible = tru
   return (
     <section className={`terminal-pane ${visible ? '' : 'is-hidden'}`} aria-label="Terminal" aria-hidden={!visible}>
       <aside className="terminal-commands">
-        <header><SquareTerminal size={17} /><strong>Project commands</strong><button className="icon-button icon-button--small" aria-label="Add project command" onClick={() => setEditing(newCommand())}><Plus size={16} /></button></header>
+        <header>
+          <SquareTerminal size={17} /><strong>Project commands</strong>
+          <button className="icon-button icon-button--small" aria-label="Export commands.json" title="Export commands.json" disabled={commands.length === 0} onClick={exportCommands}><Download size={15} /></button>
+          <button className="icon-button icon-button--small" aria-label="Import commands.json" title="Import commands.json" onClick={() => importInput.current?.click()}><Upload size={15} /></button>
+          <button className="icon-button icon-button--small" aria-label="Add project command" onClick={() => setEditing(newCommand())}><Plus size={16} /></button>
+          <input ref={importInput} type="file" accept="application/json,.json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importCommands(file); }} />
+        </header>
         {commands.length === 0 ? <p>No commands configured.</p> : <ul>
           {commands.map((command) => <li key={command.id}>
             <button className="terminal-command__run" onClick={() => run(command)} title={command.command}><Play size={14} />{command.name}</button>
@@ -180,11 +330,18 @@ export function TerminalPane({ workspaceId, workspaceRoot, client, visible = tru
         {notice && <p className="terminal-notice" role="status">{notice}</p>}
       </main>
       <nav className="terminal-tabs" aria-label="Terminal tabs">
-        <button className="icon-button icon-button--small" aria-label="New shell" disabled={!workspaceId} onClick={addShell}><Plus size={17} /></button>
-        {sessions.map((session, index) => <div className={`terminal-tab ${session.localId === activeLocalId ? 'is-active' : ''}`} key={session.localId}>
-          <button aria-label={`Open ${session.title}`} onClick={() => setActiveLocalId(session.localId)}><ChevronDown size={14} /><span>{index + 1}</span></button>
-          <button aria-label={`Close ${session.title}`} onClick={() => kill(session)}><X size={14} /></button>
-        </div>)}
+        <button className="icon-button icon-button--small" aria-label="New shell" title="New shell (Ctrl/Cmd+T)" disabled={!workspaceId} onClick={addShell}><Plus size={17} /></button>
+        {sessions.map((session, index) => (
+          <TerminalTab
+            key={session.localId}
+            session={session}
+            index={index}
+            active={session.localId === activeLocalId}
+            onActivate={() => setActiveLocalId(session.localId)}
+            onClose={() => kill(session)}
+            onRename={(title) => rename(session.localId, title)}
+          />
+        ))}
       </nav>
     </section>
   );

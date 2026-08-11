@@ -139,3 +139,23 @@ constrains work before resources are committed.
 Consequences: prompts over 512 KiB must use path references (the intended pattern);
 very long model messages show a truncation affordance; uploads over 20 MB still
 reject pre-decode, now with a deterministic transport close.
+
+## ADR-0018: Terminal polish — rename, shortcuts, commands.json portability
+Date: 2026-08-10
+Status: accepted
+Context: Phase 6 shipped multi-tab xterm.js terminals and `.omp/commands.json` persistence
+inside the workspace, but tabs were labeled by index only, there were no keyboard shortcuts,
+and there was no way to move commands between machines/repos other than committing the file.
+Decision: (1) tabs support inline rename on double-click (40-char cap, Enter/blur commit,
+Esc cancel); (2) window-level keyboard listener handles Mod+T (new shell), Mod+W (close
+active), Mod+1..9 (switch), Mod+Shift+[/] (prev/next), guarded to ignore INPUT/TEXTAREA/
+contenteditable focus so shortcuts never fight the composer or command editor;
+(3) commands.json export downloads a normalized `{commands:[…]}` blob; import validates
+shape, re-keys ids to avoid collisions from foreign repos, and merges by name (incoming
+replaces same-named entries, others append).
+Reasoning: parity with pi-web-ui polish without changing the storage format or the security
+posture (persistence still goes through the containment-checked `terminal.commands` write).
+Consequences: tab labels are user-controllable strings but capped in length; keyboard
+shortcuts on macOS use Cmd via metaKey; Ctrl+T is intercepted by Chromium's new-tab in
+production, so the E2E dispatches the KeyboardEvent directly to exercise the wiring
+(users invoke Cmd+T on macOS or Ctrl+T without the browser hijacking it inside a PWA).

@@ -1,6 +1,6 @@
 # PARITY.md — Phase 6: Feature Parity with pi-web-ui
 
-Status: **complete (2026-08-10)** — all 11 items verified, security review remediated (SHIP), see ACCEPTANCE.md Phase 6 matrix · Owner: OMP WebUI Delivery Orchestrator · Baseline: v1 acceptance (commit 401b230, pushed to theturtlecsz/omp-webui)
+Status: **complete (2026-08-10)** — all 11 items verified, security review remediated (SHIP); Phase 7 terminal polish (T-210 tab rename + keyboard shortcuts, T-220 commands.json export/import) also shipped. See ACCEPTANCE.md · Owner: OMP WebUI Delivery Orchestrator · Baseline: v1 acceptance (commit 401b230, pushed to theturtlecsz/omp-webui)
 
 ## Target
 Feature parity with pi-web-ui v0.15.0 (published 2026-08-10) while preserving our

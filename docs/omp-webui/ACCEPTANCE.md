@@ -77,3 +77,12 @@ review (REVIEW_PHASE6.md) adjudicated FIX-FIRST → all findings remediated → 
 | T-200 | Documentation sync | ✅ | this row + PROTOCOL bounds section + ADR-0016/0017 |
 
 Phase 6 suite totals: daemon **31/31**, web **25/25**, Playwright **15/15 + 1/1**, clean-clone PASS.
+
+## Phase 7 (terminal polish) — final evidence (2026-08-10)
+
+| Task | Requirement | Status | Evidence |
+| --- | --- | --- | --- |
+| T-210 | Rename tabs + keyboard shortcuts (Mod+T new, Mod+W close, Mod+1..9 switch, Mod+Shift+[/] prev/next) | ✅ | `TerminalPane.tsx` `TerminalTab` inline rename (dblclick → input, Enter commit, Esc cancel, 40-char cap) + window keydown listener that ignores input/textarea focus. E2E: `terminal.spec.ts` renames Shell 1 → "builder", dispatches Ctrl+T (2 tabs), Ctrl+1 (activates first). |
+| T-220 | Export/import `commands.json` (portable, mergeable) | ✅ | Download button emits `commands.json` blob; upload button opens file picker, validates JSON, re-keys ids, merges by name (same-named commands replaced). E2E: exports, deletes `marker`, re-imports the downloaded file, `marker` reappears. |
+
+Phase 7 verification: web 25/25 vitest, `tsc` clean, build OK; Playwright terminal config 1/1 (extended); default Playwright 15/15; daemon 31/31 (clean run, no concurrent-suite interference); clean-clone PASS.

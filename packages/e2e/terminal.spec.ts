@@ -47,5 +47,41 @@ test.describe('terminal pane (daemon with --terminal)', () => {
     await expect(page.getByLabel('Conversation')).toBeVisible();
     await page.getByRole('button', { name: 'Terminal', exact: true }).click();
     await expect(pane.locator('.xterm-rows').first()).toContainText('E2E_TERMINAL_OK');
+
+    // T-210 polish: rename the tab and open a second shell via Ctrl+T shortcut.
+    const firstTab = pane.locator('.terminal-tab').first();
+    await firstTab.locator('button').first().dblclick();
+    const renameInput = pane.getByRole('textbox', { name: /^Rename Shell 1$/ });
+    await expect(renameInput).toBeFocused();
+    await renameInput.fill('builder');
+    await renameInput.press('Enter');
+    await expect(pane.locator('.terminal-tab button[aria-label="Open builder"]')).toBeVisible();
+
+    // Ctrl+T from outside any input opens a new shell (Mod+T mapping).
+    // Chrome consumes real Ctrl+T for new-browser-tab even in headless, so
+    // dispatch the KeyboardEvent directly — verifies our listener wiring.
+    await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', ctrlKey: true, bubbles: true })));
+    await expect(pane.locator('.terminal-tab')).toHaveCount(2);
+
+    // Ctrl+1 switches back to the first (renamed) tab.
+    await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: '1', ctrlKey: true, bubbles: true })));
+    await expect(pane.locator('.terminal-tab').first()).toHaveClass(/is-active/);
+
+    // T-220 polish: exporting commands.json produces a valid JSON payload.
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      pane.getByRole('button', { name: 'Export commands.json' }).click(),
+    ]);
+    const path = await download.path();
+    expect(path).toBeTruthy();
+    // Delete the existing 'marker' command, then import the same file back.
+    await pane.getByRole('button', { name: 'Delete marker' }).click();
+    await expect(pane.locator('.terminal-command__run', { hasText: 'marker' })).toHaveCount(0);
+    const [importFileChooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      pane.getByRole('button', { name: 'Import commands.json' }).click(),
+    ]);
+    await importFileChooser.setFiles(path!);
+    await expect(pane.locator('.terminal-command__run', { hasText: 'marker' })).toBeVisible();
   });
 });

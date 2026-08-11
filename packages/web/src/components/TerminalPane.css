@@ -75,6 +75,7 @@
 .terminal-tab button { justify-content: center; width: 100%; min-height: 1.7rem; }
 .terminal-tab button:last-child { color: var(--color-text-faint); }
 .terminal-tab button:last-child:hover { color: var(--color-danger); }
+.terminal-tab__rename { width: 100%; min-width: 0; padding: var(--space-0-5) var(--space-1); font: inherit; font-size: var(--font-size-xs); color: var(--color-text); background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); text-align: center; }
 
 @media (max-width: 719px) {
   .surface-toggle button { padding-inline: var(--space-1); }
