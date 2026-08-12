@@ -52,6 +52,18 @@ Headless chromium. Each spec: beforeAll opens a workspace in a unique tmp dir vi
 - testDir: packages/e2e; retries 1; workers 1 (shared stub LLM is stateful).
 - webServer entries: stub (8788, reuseExistingServer) + daemon (7490) serving web dist.
 - baseURL http://127.0.0.1:7490. Trace/screenshot on failure under scratch/e2e-artifacts.
+- **Isolated OMP HOME (required):** the config runs `scripts/setup-e2e-home.ts`
+  at load, exports `OMP_E2E_HOME=/tmp/omp-webui-e2e-home`, and starts the
+  daemon with `HOME=$OMP_E2E_HOME`. The scratch home contains the real
+  `models.yml` (so the stub provider on :8788 is reachable) but empty
+  `extensions/` and `rules/` — this prevents globally-installed omp
+  extensions (e.g. session-system's `linear-now.ts`) from injecting
+  synthetic messages that displace the real user prompt as the stub's
+  `lastUser` inspection target. The daemon webServer uses
+  `reuseExistingServer: false` so a stale manually-started daemon can't
+  leak the real HOME into a run. Specs that read `~/.omp/agent/**` from
+  the filesystem (e.g. `providers.spec.ts`, `i18n-sound-attach.spec.ts`)
+  MUST honor `process.env.OMP_E2E_HOME` before falling back to `homedir()`.
 
 ## Definition of done
 `bun x playwright test` passes all specs. Paste the real summary line in your handoff.

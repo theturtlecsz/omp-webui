@@ -1,9 +1,11 @@
 # REAL_PARITY_COMPARISON — pi-web-ui v0.15.0 vs omp-webui (2026-08-10)
 
-> **Re-validated 2026-08-11** against pi-web-ui **0.17.1** and omp **17.2.13**
-> (see "2026-08-11 re-baseline" section at the bottom). Full suites re-run
-> green against omp 17.2.13: daemon bun 43/43, web vitest 56/56, Playwright
-> default 17/17, Playwright terminal 1/1.
+> **Re-validated 2026-08-12** against pi-web-ui **0.17.1** and omp **17.2.13**.
+> Full suites green: daemon bun 73/73, web vitest 99/99, Playwright default
+> 24/24 (1 skipped, terminal spec runs under its own config), Playwright
+> terminal 1/1, Playwright `linear-now` 1/1. See "2026-08-12 — Playwright
+> isolation fix" at the bottom for the closeout of the last 3 pre-existing
+> failures.
 
 ## The framing problem I need to lead with
 
@@ -392,3 +394,64 @@ render; silent-cancel was rejected as user-hostile).
 | Playwright `linear-now` (real Linear key) | 1 / 1 pass |
 
 The 3 pre-existing Playwright failures (`panels`, `parity: attachments/images`, `parity: markdown`) were reproduced against master by stashing this session's changes and rerunning — they are not caused by parity gap 10–13 work and are tracked separately.
+
+## 2026-08-12 — Playwright isolation fix (all 3 pre-existing failures closed)
+
+The last 3 pre-existing Playwright failures are now fixed. Root cause was an
+e2e/environment isolation bug, not a product bug.
+
+### Root cause
+
+session-system's globally-installed `linear-now.ts` extension
+(`~/.omp/agent/extensions/`) registers a `before_agent_start` hook that emits
+a `customType: "linear-digest"` message on every session start. omp's `UH()`
+mapper (`dist/cli.js`) maps `custom` → `developer`, and the OpenAI-compatible
+adapter then remaps `developer` → `user` for providers without native
+developer-role support (the stub provider on :8788 falls in that bucket).
+Result: `messages[]` sent to the stub looked like
+
+```
+[0] system: <system-conventions>...
+[1] user: please use a tool now      ← the real prompt
+[2] user: ── Linear bookend ── ...  ← extension digest, positioned last
+```
+
+The stub's `plan()` picks `lastUser` = messages[2] (the digest), which fails
+every substring match (`use a tool`, `markdown`, image parts) and falls
+through to the default `Hello from the stub` branch. All 3 tests assert on
+branch-specific output that never appeared. Confirmed live by instrumenting
+the stub to log incoming request bodies and reproducing the panels failure.
+
+### Fix
+
+- New `scripts/setup-e2e-home.ts` builds `/tmp/omp-webui-e2e-home` with a
+  copy of the real `models.yml` (so the :8788 stub provider stays reachable)
+  but empty `extensions/` and `rules/`.
+- `playwright.config.ts` runs the setup script at load, exports
+  `OMP_E2E_HOME`, spawns the daemon with `HOME=<isolated>`, and switches
+  the daemon's `reuseExistingServer` to `false` so a stale manually-started
+  daemon can't leak the real HOME into a test run.
+- `providers.spec.ts` and `i18n-sound-attach.spec.ts` read
+  `~/.omp/agent/models.yml` / `sessions/` directly; both now honor
+  `OMP_E2E_HOME` when set.
+- Production code paths are untouched. Session-system's `linear-now.ts` is
+  unchanged — the extension is correct in production; only the e2e harness
+  needed isolation.
+
+### Full-suite verification (2026-08-12, post-fix)
+
+| Suite | Result |
+| --- | --- |
+| Web vitest | 99 / 99 pass |
+| Daemon bun test | 73 / 73 pass |
+| Playwright default | 24 pass, 0 fail, 1 skipped (`terminal.spec.ts` runs under its own config) |
+| Playwright terminal | 1 / 1 pass |
+| Playwright `linear-now` (real Linear key) | 1 / 1 pass |
+
+Fixed tests:
+- `panels.spec.ts:6` — workspace panels + Plan panel + Git diff
+- `parity.spec.ts:30` — image paste attachment acknowledgement
+- `parity.spec.ts:98` — GFM markdown rendering with code copy
+
+Commit: `94f24aa` on master (`fix(e2e): isolate omp HOME to prevent extension
+bleed into stub messages`).
