@@ -4,7 +4,10 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { openWorkspaceAndSession, sendPrompt } from './helpers';
 
-const MODELS_YML = join(homedir(), '.omp', 'agent', 'models.yml');
+// Prefer the isolated e2e HOME set by playwright.config.ts. Falls back to
+// the real home so this spec still runs standalone if invoked directly.
+const OMP_HOME = process.env.OMP_E2E_HOME ?? homedir();
+const MODELS_YML = join(OMP_HOME, '.omp', 'agent', 'models.yml');
 const BACKUP = MODELS_YML + '.e2e-backup';
 
 // The Playwright daemon runs against the real agent dir, so snapshot the

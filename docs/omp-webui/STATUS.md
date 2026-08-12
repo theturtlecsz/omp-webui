@@ -1,6 +1,32 @@
 # STATUS
 
-Last updated: 2026-08-11
+Last updated: 2026-08-12
+
+## 2026-08-12 — fix 3 pre-existing Playwright failures (extension isolation)
+- Root cause: session-system's globally-installed `linear-now.ts` extension
+  (`~/.omp/agent/extensions/`) registers a `before_agent_start` hook that emits
+  a `customType: "linear-digest"` custom message on every session start. omp's
+  `UH()` maps `custom` → `developer`, and the OpenAI-compatible adapter remaps
+  `developer` → `user` for providers without native developer-role support.
+  Result: the stub's `lastUser` inspection saw the Linear bookend text instead
+  of the actual prompt, missed substring matches (`use a tool` / `markdown` /
+  image parts), and every turn hit the default `Hello from the stub` branch.
+- Confirmed by instrumenting the stub to log incoming `messages[]`: request 0
+  from the panels spec showed `[1] user: please use a tool now` followed by
+  `[2] user: ── Linear bookend (linear.app/spec-kit) ──` — the digest as a
+  user role, positioned last.
+- Fix: e2e daemon now runs with an isolated `HOME` built by
+  `scripts/setup-e2e-home.ts` — copies the real `models.yml` (so the stub
+  provider on :8788 stays reachable) but leaves `extensions/` and `rules/`
+  empty. Playwright config exports `OMP_E2E_HOME` so the two specs that read
+  models.yml / sessions/ directly point at the same tree. Daemon webServer
+  flipped to `reuseExistingServer: false` to guarantee it always spawns with
+  the isolated HOME.
+- Suites (all green after fix): daemon+web internal tests via bun, Playwright
+  24/24 (1 skipped is terminal.spec — separate config). Fixes:
+  - `panels.spec.ts:6` (Plan panel + Git diff)
+  - `parity.spec.ts:30` (image paste)
+  - `parity.spec.ts:98` (GFM markdown)
 
 ## 2026-08-11 (night) — provider/model CRUD (gap #5)
 - Schema verified against installed omp 17.2.13 before writing anything:
@@ -183,6 +209,6 @@ Bugs fixed mid-session while validating the above:
 
 ### Follow-ups
 
-- session-system patch (`extensions/linear-now.ts`) still uncommitted — user owns `github.com/zimmermanc/session-system`, needs a push destination.
+- session-system patch (`extensions/linear-now.ts`) shipped as `83c8d18` on `main` at `github.com/zimmermanc/session-system` (pushed 2026-08-12). Installed into `~/.omp/agent/extensions/linear-now.ts` via symlink to the workspace checkout — `omp` picks it up on next worker spawn.
 - Real Linear key `lin_api_…` is in `/home/user/.config/linear.env` and in this thread — user should rotate at https://linear.app/settings/api.
 - Latent daemon bug (worker.ts:60 uses `--session <file>`, real omp wants `--session-dir`/`--resume`) still open, no test.

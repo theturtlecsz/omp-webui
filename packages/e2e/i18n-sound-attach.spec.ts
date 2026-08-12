@@ -94,7 +94,10 @@ test.describe('parity gaps 10-12: i18n, sound, reference-mode', () => {
     // where <slug> is the workspace path with slashes turned into hyphens.
     // Search that directory for our unique prompt to find this run's
     // transcript, then verify the daemon emitted path-only text.
-    const sessionsRoot = join(process.env.HOME ?? '/home/user', '.omp/agent/sessions');
+    // Prefer the isolated e2e HOME set by playwright.config.ts so this test
+    // reads the sessions the daemon actually wrote to.
+    const ompHome = process.env.OMP_E2E_HOME ?? process.env.HOME ?? '/home/user';
+    const sessionsRoot = join(ompHome, '.omp/agent/sessions');
     const { execFileSync } = await import('node:child_process');
     await page.waitForTimeout(500); // let the transcript flush finish
     const found = execFileSync('grep', ['-rlF', 'reference this file', sessionsRoot], { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
