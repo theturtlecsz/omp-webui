@@ -199,6 +199,33 @@ describe("Phase 6 daemon adversarial review", () => {
     expect(prompt.message).not.toContain("../../hostile.txt");
   }, 20_000);
 
+  it("honours asReference=true by sending path-only regardless of size (reference-mode attachments)", async () => {
+    writeFileSync(join(workspace, "tiny.txt"), "one tiny line here");
+    const create = await client.command("session.create", { workspaceId });
+    const sessionId = String((create.payload as { sessionId: string }).sessionId);
+    await client.command("prompt.submit", {
+      message: "ref",
+      workspaceId,
+      attachments: [{ path: "tiny.txt", asReference: true }],
+    }, sessionId);
+    await Bun.sleep(100);
+    const prompt = JSON.parse(readFileSync(workerLog, "utf8").trim().split("\n").at(-1)!) as { message: string };
+    expect(prompt.message).toContain("File attachment: tiny.txt");
+    // The tiny.txt contents must NOT be inlined — that's the whole point of reference mode.
+    expect(prompt.message).not.toContain("one tiny line here");
+    expect(prompt.message).not.toContain('<file path="tiny.txt">');
+    // Ranges combine with reference-mode without inlining.
+    await client.command("prompt.submit", {
+      message: "ref-range",
+      workspaceId,
+      attachments: [{ path: "tiny.txt", asReference: true, start: 1, end: 1 }],
+    }, sessionId);
+    await Bun.sleep(100);
+    const rangePrompt = JSON.parse(readFileSync(workerLog, "utf8").trim().split("\n").at(-1)!) as { message: string };
+    expect(rangePrompt.message).toContain("File attachment: tiny.txt (lines 1-1)");
+    expect(rangePrompt.message).not.toContain("one tiny line here");
+  }, 20_000);
+
   it("keeps file.read range output bounded for hostile numeric inputs", async () => {
     writeFileSync(join(workspace, "lines.txt"), Array.from({ length: 20_000 }, (_, index) => `line-${index + 1}`).join("\n"));
     for (const [start, end] of [[10, 1], [-5, 10], [1, 1_000_000_000], [1.5, 3.5], ["2", "4"]] as Array<[unknown, unknown]>) {

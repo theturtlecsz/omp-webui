@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Paperclip, Send, Settings2, Square, Waypoints, X } from 'lucide-react';
 import type { DaemonClient } from '../lib/client';
 import { attachmentId, fileForUpload, hasKnownNoImageInput, imageForPrompt, type PendingAttachment } from '../lib/attachments';
+import { useAttachmentSettings } from '../lib/settings';
+import { useT } from '../lib/i18n';
 import { FileMention } from './FileMention';
 import { ModelPickerDialog } from './ModelPickerDialog';
 
@@ -29,6 +31,8 @@ export function Composer({ session, workspaceId, isStreaming, queuedPrompts, mod
   const [mention, setMention] = useState('');
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [attachmentSettings] = useAttachmentSettings();
+  const { t } = useT();
   const textRef = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   useEffect(() => { setValue(key ? localStorage.getItem(`omp-webui.draft.${key}`) ?? '' : ''); }, [key]);
@@ -60,7 +64,11 @@ export function Composer({ session, workspaceId, isStreaming, queuedPrompts, mod
     client.command(mode, {
       message: value,
       workspaceId,
-      attachments: attachments.map((attachment) => ({ path: attachment.path, ...(attachment.range ? attachment.range : {}) })),
+      attachments: attachments.map((attachment) => ({
+        path: attachment.path,
+        ...(attachment.range ? attachment.range : {}),
+        ...(attachment.asReference && !attachment.image ? { asReference: true } : {}),
+      })),
       images: attachments.flatMap((attachment) => attachment.image ? [{ data: attachment.image.data, mimeType: attachment.image.mimeType }] : []),
     }, session.sessionId).then(() => {
       if (mode === 'prompt.submit') { change(''); onAttachments([]); }
@@ -86,6 +94,8 @@ export function Composer({ session, workspaceId, isStreaming, queuedPrompts, mod
           size: stored.size,
           mimeType: upload.mimeType,
           ...(image ? { image: { data: image.data, mimeType: image.mimeType } } : {}),
+          // Non-image attachments inherit the current reference-mode default.
+          ...(image ? {} : { asReference: attachmentSettings.referenceMode }),
         });
       }
       onAttachments([...attachments, ...next]);
@@ -97,7 +107,25 @@ export function Composer({ session, workspaceId, isStreaming, queuedPrompts, mod
   const warning = attachments.some((attachment) => attachment.image) && hasKnownNoImageInput(model);
   return <form className="composer" aria-label="Message composer" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void uploadFiles([...event.dataTransfer.files]); }} onSubmit={e => { e.preventDefault(); submit(); }}>
     <FileMention query={mention} workspaceId={workspaceId} client={client} onChoose={path => { const start = textRef.current?.selectionStart ?? value.length; change(`${value.slice(0, start).replace(/@[^\s@]*$/, '')}@${path}${value.slice(start)}`); setMention(''); textRef.current?.focus(); }} />
-    {attachments.length > 0 && <div className="attachment-chips" aria-label="Attachments">{attachments.map((attachment) => <span className="attachment-chip" key={attachment.id}><span>{attachment.image ? 'Image' : 'File'}: {attachment.name}</span>{attachment.range && <small>lines {attachment.range.start}–{attachment.range.end}</small>}<button type="button" aria-label={`Remove ${attachment.name}`} onClick={() => onAttachments(attachments.filter((item) => item.id !== attachment.id))}><X size={13} /></button></span>)}</div>}
+    {attachments.length > 0 && <div className="attachment-chips" aria-label="Attachments">{attachments.map((attachment) => {
+      const isImage = !!attachment.image;
+      const nextMode = attachment.asReference ? false : true;
+      const badgeLabel = attachment.asReference ? t('attachment.badge.reference') : t('attachment.badge.inline');
+      const toggleLabel = attachment.asReference ? t('composer.attach.inline') : t('composer.attach.reference');
+      return <span className="attachment-chip" key={attachment.id}>
+        <span>{isImage ? 'Image' : 'File'}: {attachment.name}</span>
+        {attachment.range && <small>lines {attachment.range.start}–{attachment.range.end}</small>}
+        {!isImage && <button
+          type="button"
+          className={`attachment-chip__mode${attachment.asReference ? ' attachment-chip__mode--reference' : ''}`}
+          aria-label={`${attachment.name}: ${toggleLabel}`}
+          aria-pressed={attachment.asReference === true}
+          title={toggleLabel}
+          onClick={() => onAttachments(attachments.map((item) => item.id === attachment.id ? { ...item, asReference: nextMode } : item))}
+        >{badgeLabel}</button>}
+        <button type="button" aria-label={`Remove ${attachment.name}`} onClick={() => onAttachments(attachments.filter((item) => item.id !== attachment.id))}><X size={13} /></button>
+      </span>;
+    })}</div>}
     {warning && <p className="composer__warning" role="status">This model is marked as not supporting image input. Your image will still be sent.</p>}
     {uploadError && <p className="composer__warning composer__warning--error" role="status">{uploadError}</p>}
     <label className="u-sr-only" htmlFor="composer-input">Message OMP</label>

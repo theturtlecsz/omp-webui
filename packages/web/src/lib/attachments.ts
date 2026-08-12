@@ -8,6 +8,13 @@ export type PendingAttachment = {
   mimeType?: string;
   image?: { data: string; mimeType: string };
   range?: AttachmentRange;
+  /**
+   * Reference-mode attachment: instead of inlining the file's bytes into the
+   * prompt, send only the workspace path so omp reads it directly. The daemon
+   * emits `File attachment: <path>` when this is true, regardless of size.
+   * Ignored for image attachments (images always carry pixel data).
+   */
+  asReference?: boolean;
 };
 
 export type UploadedFile = { path: string; name: string; size: number };

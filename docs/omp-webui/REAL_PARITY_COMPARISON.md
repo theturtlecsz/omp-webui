@@ -338,10 +338,57 @@ still exist in 0.17.1 — gap list below remains accurate.
 | 7 | Questions nav bar | ✅ shipped 2026-08-11 — Questions drawer tab lists user messages with click-to-jump (`data-msg-id` anchors + `msg-flash` highlight), mirroring pi-web-ui's 问题列表 |
 | 8 | Recent-projects MRU switcher | ✅ shipped 2026-08-11 — localStorage-backed MRU (8 entries, deduped, most-recent-first) recorded centrally on every workspace open, rendered in Sidebar with click-to-reopen |
 | 9 | Path autocomplete | ✅ shipped 2026-08-11 — daemon `path.complete` (host-dir completion, `~` expansion, hidden/node_modules filtered, 50-result cap) feeding a datalist on the open-path input |
-| 10 | i18n scaffold | ❌ open |
-| 11 | Sound effects | ❌ open (nice-to-have) |
-| 12 | Reference-mode attachments | ❌ open |
+| 10 | i18n scaffold | ✅ shipped 2026-08-12 — LanguageProvider + en/zh dictionaries, persistent per-tab toggle in SettingsDialog, drives all headings/labels; 4 vitest + 1 Playwright covering toggle + persistence |
+| 11 | Sound effects | ✅ shipped 2026-08-12 — WebAudio synth (question / done / error), per-effect volume, localStorage-persisted, wired into transcript events; 7 vitest + 1 Playwright covering storage keys |
+| 12 | Reference-mode attachments | ✅ shipped 2026-08-12 — `PendingAttachment.asReference?`, chip toggle in Composer, per-attachment default from SettingsDialog, Files-panel `onAdd` respects the setting, daemon `#messageWithAttachments` emits a path-only `File attachment: <path>` frame when set; daemon phase-6 security test + Playwright asserting the transcript file contains the path and not the inlined bytes |
+| 13 | /now picker on web surfaces | ✅ shipped 2026-08-12 — session-system `linear-now.ts` falls back from `ctx.ui.custom` to `ctx.ui.select` when the custom overlay is unavailable; web ApprovalDialog surfaces the extension-supplied title as a subtitle so `Make HOME-13 your NOW?` round-trips end-to-end. Live-verified against real Linear with HOME-13 (Playwright `linear-now.spec.ts`, gated on `LINEAR_API_KEY`) |
 
 Non-goals confirmed unchanged: system-service installers, Docker, self-update
 panel, cross-platform service managers (their 0.17.x `server` subcommand work
 is all in this deferred category).
+
+## 2026-08-12 — parity gaps 10–13 closed
+
+All 12 originally tracked gaps are now shipped, plus a 13th surfaced this
+session (the `/now` picker relied on `ctx.ui.custom`, which the web UI cannot
+render; silent-cancel was rejected as user-hostile).
+
+### What actually changed
+
+**Web (`packages/web/src/`)**:
+- `lib/i18n.ts` — LanguageProvider + `useT` hook, en/zh dictionaries.
+- `lib/sound.ts` + `lib/sound-triggers.ts` — WebAudio synth for question/done/error events, persisted in localStorage.
+- `lib/settings.ts` — `useSoundSettings` + `useAttachmentSettings` hooks with a same-tab custom-event broadcast so Settings-dialog writes propagate immediately to other component instances (was a real bug: without it, the Files-panel `onAdd` read stale settings).
+- `lib/attachments.ts` — added `PendingAttachment.asReference?: boolean`.
+- `components/SettingsDialog.tsx` — new dialog: language, per-effect sound toggles + volumes, reference-mode default.
+- `components/Composer.tsx` — per-attachment mode chip (`ref` / `inline`); uploads default to `asReference` when the setting is on.
+- `components/AppShell.tsx` — Settings button, `LanguageProvider` wrap, `useSoundTriggers` hook mount, Files-panel `onAdd` pipes `attachmentSettings.referenceMode`.
+- `components/ApprovalDialog.tsx` — renders extension-supplied `title` as a subtitle beneath the fixed heading (keeps existing tests, surfaces extension context).
+- `app.css` — dialog + chip + subtitle styles.
+
+**Daemon (`packages/daemon/src/`)**:
+- `server.ts` — `PromptAttachment.asReference?: boolean`; `#messageWithAttachments` emits `File attachment: <path>` text (no bytes) when set.
+- `session-runtime.ts` — auto-cancels unknown extension UI methods (from the earlier session-system fix, kept as defence-in-depth).
+
+**session-system (`extensions/linear-now.ts`)**:
+- `/now` picker: when `ctx.ui.custom` returns undefined or throws, fall back to `ctx.ui.select` populated with a flat labelled MapIssue list, isNow-first sort, `surface.name` (fixed pre-existing `.label` bug).
+
+### Test coverage added
+
+- `packages/web/test/i18n.test.ts` — 4 tests, all pass.
+- `packages/web/test/sound.test.ts` — 7 tests, all pass.
+- `packages/daemon/test/phase6-security-review.test.ts` — reference-mode assertion added, all pass.
+- `packages/e2e/i18n-sound-attach.spec.ts` — 3 Playwright tests, all pass.
+- `packages/e2e/linear-now.spec.ts` — live Linear picker E2E, passes with real key.
+
+### Full-suite verification (2026-08-12)
+
+| Suite | Result |
+| --- | --- |
+| Web vitest | 99 / 99 pass |
+| Daemon bun test | 73 / 73 pass |
+| Playwright default | 22 pass, 3 fail (identical failures reproduce on master @ 734c507; zero new regressions) |
+| Playwright terminal | 1 / 1 pass |
+| Playwright `linear-now` (real Linear key) | 1 / 1 pass |
+
+The 3 pre-existing Playwright failures (`panels`, `parity: attachments/images`, `parity: markdown`) were reproduced against master by stashing this session's changes and rerunning — they are not caused by parity gap 10–13 work and are tracked separately.

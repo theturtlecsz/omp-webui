@@ -157,3 +157,32 @@ Last updated: 2026-08-11
 - Final suites (orchestrator-verified): daemon 17/17, web tsc+19/19+build, Playwright 8/8
   (23.4s), clean-clone PASS. REVIEW.md addendum revises verdict to SHIP.
 - Definition of Done: all 15 acceptance rows ✅ (see ACCEPTANCE.md).
+
+## 2026-08-12 — parity gaps 10–13 closed, real /now web solution shipped
+
+Closed all four remaining parity gaps against pi-web-ui 0.17.1:
+
+- **10 i18n** — LanguageProvider + en/zh dictionaries + persistent SettingsDialog toggle.
+- **11 sound effects** — WebAudio synth (question/done/error), per-effect volume, persisted.
+- **12 reference-mode attachments** — Composer chip + Settings default + daemon path-only branch (`File attachment: <path>` frame, no inlined bytes).
+- **13 /now web picker** (surfaced this session) — `session-system/extensions/linear-now.ts` falls back from `ctx.ui.custom` to `ctx.ui.select` on non-TUI hosts; web `ApprovalDialog` renders extension-supplied titles as a subtitle so `Make HOME-13 your NOW?` round-trips end-to-end. Live-verified against real Linear.
+
+Bugs fixed mid-session while validating the above:
+
+- `useSoundSettings` / `useAttachmentSettings` didn't sync between components in the same tab (storage events don't fire in-tab). Added a same-tab custom-event broadcast so Settings dialog writes propagate immediately.
+- `AppShell.tsx` Files-panel `onAdd` bypassed `attachmentSettings.referenceMode`; now piped through.
+- `linear-now.ts` had a pre-existing `.label` (should be `.name`) surface-picker bug and a missing isNow-first sort; both fixed as part of the fallback patch.
+
+### Suites (2026-08-12)
+
+- daemon bun test: **73 / 73 pass**
+- web vitest: **99 / 99 pass**
+- Playwright default: **22 pass, 3 fail** — the three failures (`panels`, `parity: attachments/images`, `parity: markdown`) reproduce on master @ 734c507 with our changes stashed. **Zero new regressions.**
+- Playwright terminal: **1 / 1 pass**
+- Playwright `linear-now` (real Linear key): **1 / 1 pass**
+
+### Follow-ups
+
+- session-system patch (`extensions/linear-now.ts`) still uncommitted — user owns `github.com/zimmermanc/session-system`, needs a push destination.
+- Real Linear key `lin_api_…` is in `/home/user/.config/linear.env` and in this thread — user should rotate at https://linear.app/settings/api.
+- Latent daemon bug (worker.ts:60 uses `--session <file>`, real omp wants `--session-dir`/`--resume`) still open, no test.

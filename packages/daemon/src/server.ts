@@ -44,7 +44,7 @@ const daemonPackage = JSON.parse(readFileSync(new URL("../package.json", import.
 // The package is private and may omit a version during development. Keep the
 // health contract stable for the WebUI rather than returning an undefined field.
 const DAEMON_VERSION = typeof daemonPackage.version === "string" ? daemonPackage.version : "0.1.0";
-type PromptAttachment = { path?: unknown; name?: unknown; data?: unknown; start?: unknown; end?: unknown };
+type PromptAttachment = { path?: unknown; name?: unknown; data?: unknown; start?: unknown; end?: unknown; asReference?: unknown };
 type PromptImage = { data?: unknown; mimeType?: unknown };
 
 export interface DaemonOptions {
@@ -1042,9 +1042,13 @@ export class Daemon {
       const end = Number(attachment.end);
       const hasRange = Number.isInteger(start) && Number.isInteger(end) && start > 0 && end >= start;
       // Whole-file attachments above the inline threshold are path references
-      // only — never read them just to discover they are too large.
-      if (!hasRange && stat.size > this.#inlineFileMax()) {
-        blocks.push(`File attachment: ${displayPath}`);
+      // only — never read them just to discover they are too large. The same
+      // path-only branch is taken when the client sets `asReference: true`
+      // (reference-mode: force omp to read the file itself by path, regardless
+      // of size, so we don't inflate the prompt for e.g. a large log).
+      const forceReference = attachment.asReference === true;
+      if (forceReference || (!hasRange && stat.size > this.#inlineFileMax())) {
+        blocks.push(`File attachment: ${displayPath}${hasRange ? ` (lines ${start}-${end})` : ""}`);
         continue;
       }
       const read = resolved.uploaded

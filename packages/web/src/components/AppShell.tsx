@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Menu, MessageSquareText, PanelRightOpen, Plus, SquareTerminal, X } from 'lucide-react';
+import { Menu, MessageSquareText, PanelRightOpen, Plus, Settings, SquareTerminal, X } from 'lucide-react';
 import type { SessionSummary } from '../../../daemon/src/protocol';
 import { daemonClient, daemonHealthUrl } from '../lib/client';
 import { useAppStore } from '../lib/store';
@@ -26,6 +26,10 @@ import { ExtensionWidget } from './ExtensionWidget';
 import { NotifyToast } from './NotifyToast';
 import { OpenUrlDialog } from './OpenUrlDialog';
 import { ExtensionStatusPills } from './ExtensionStatusPills';
+import { SettingsDialog } from './SettingsDialog';
+import { LanguageProvider, useT } from '../lib/i18n';
+import { useSoundTriggers } from '../lib/sound-triggers';
+import { useAttachmentSettings } from '../lib/settings';
 
 type FilePreview = { path: string; content: string; truncated?: boolean; binary?: boolean; lineCount?: number };
 
@@ -80,6 +84,19 @@ function FilesPanel({ workspaceId, initialPath, onAdd }: { workspaceId?: string;
 }
 
 export function AppShell() {
+  return <LanguageProvider><AppShellInner /></LanguageProvider>;
+}
+
+function AppShellInner() {
+  const { t } = useT();
+  useSoundTriggers();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  return <AppShellBody t={t} settingsOpen={settingsOpen} setSettingsOpen={setSettingsOpen} />;
+}
+
+function AppShellBody({ t, settingsOpen, setSettingsOpen }: { t: (key: string) => string; settingsOpen: boolean; setSettingsOpen: (open: boolean) => void }) {
+  const __appShellBodyMarker = () => t;
+  void __appShellBodyMarker;
   const state = useAppStore();
   const { setConnection, applyEvent, setWorkspaces, setSessions, setActiveSession, setDraft, removeInteraction, dismissNotification, clearOpenUrl, clearEditorText } = useAppStore();
   const [sidebar, setSidebar] = useState(() => typeof window === 'undefined' || window.innerWidth >= 900);
@@ -87,6 +104,7 @@ export function AppShell() {
   const [tab, setTab] = useState<'files' | 'git' | 'plan' | 'questions' | 'providers'>('files');
   const [file, setFile] = useState('');
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [attachmentSettings] = useAttachmentSettings();
   const [daemonVersion, setDaemonVersion] = useState('');
   const [announcement, setAnnouncement] = useState('');
   const [surface, setSurface] = useState<'chat' | 'terminal'>('chat');
@@ -311,8 +329,10 @@ export function AppShell() {
             <button className={surface === 'chat' ? 'is-active' : ''} aria-pressed={surface === 'chat'} onClick={() => setSurface('chat')}><MessageSquareText size={15} />Chat</button>
             <button className={surface === 'terminal' ? 'is-active' : ''} aria-pressed={surface === 'terminal'} onClick={() => setSurface('terminal')}><SquareTerminal size={16} />Terminal</button>
           </div>
+          <button className="icon-button" aria-label={t('settings.open')} title={t('settings.open')} onClick={() => setSettingsOpen(true)}><Settings size={17} /></button>
           <button ref={drawerTrigger} className="icon-button" aria-label="Toggle workspace drawer" aria-expanded={drawer} onClick={() => setDrawer((open) => !open)}><PanelRightOpen size={19} /></button>
         </header>
+        {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
         <div className="main-surface">
           <TerminalPane workspaceId={state.activeWorkspaceId} workspaceRoot={workspace?.root} client={daemonClient} visible={surface === 'terminal'} />
           <div id="conversation" className={`conversation ${surface === 'chat' ? '' : 'is-hidden'}`}>
@@ -392,8 +412,8 @@ export function AppShell() {
         </header>
         <div id={`workspace-panel-${tab}`} role="tabpanel" aria-labelledby={`workspace-tab-${tab}`}>
           {tab === 'files' && <>
-            <FileTreePanel workspaceId={state.activeWorkspaceId} onAdd={(path, range) => setAttachments((current) => [...current, { id: attachmentId(), name: path.split('/').at(-1) ?? path, path, range }])} />
-            <FilesPanel workspaceId={state.activeWorkspaceId} initialPath={file} onAdd={(path, range) => setAttachments((current) => [...current, { id: attachmentId(), name: path.split('/').at(-1) ?? path, path, range }])} />
+            <FileTreePanel workspaceId={state.activeWorkspaceId} onAdd={(path, range) => setAttachments((current) => [...current, { id: attachmentId(), name: path.split('/').at(-1) ?? path, path, range, ...(attachmentSettings.referenceMode ? { asReference: true } : {}) }])} />
+            <FilesPanel workspaceId={state.activeWorkspaceId} initialPath={file} onAdd={(path, range) => setAttachments((current) => [...current, { id: attachmentId(), name: path.split('/').at(-1) ?? path, path, range, ...(attachmentSettings.referenceMode ? { asReference: true } : {}) }])} />
           </>}
           {tab === 'git' && <GitPanel workspaceId={state.activeWorkspaceId} client={daemonClient} />}
           {tab === 'plan' && <PlanPanel todos={state.sessionState.todos} />}
