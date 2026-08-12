@@ -234,7 +234,16 @@ export class SessionRuntime {
     } else if (method === "setWidget") {
       this.#emit("session.updated", { extensionUI: { method, ...frame } });
     } else {
+      // Unknown interactive methods (e.g. ctx.ui.custom overlays, which are
+      // TUI-component factories we cannot render in a browser) must still be
+      // ANSWERED — the extension is awaiting a response and the worker's RPC
+      // queue would stall for the rest of the command. Cancel gracefully so
+      // the extension's undefined-path runs (linear-now: overlay -> undefined
+      // -> falls through with a notify).
       this.#emit("status.updated", { level: "debug", message: `Unknown extension UI method: ${method.slice(0, 60)}` });
+      if (id && typeof this.worker?.command === "function") {
+        void this.worker.command({ type: "extension_ui_response", id, cancelled: true }, 5_000).catch(() => {});
+      }
     }
   }
 

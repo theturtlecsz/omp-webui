@@ -163,3 +163,30 @@ describe("SessionRuntime extension_ui_request normalization", () => {
     expect(debug).toBeDefined();
   });
 });
+
+describe("unknown extension UI methods (e.g. linear-now ctx.ui.custom overlay)", () => {
+  test("unknown interactive methods are auto-cancelled so the extension never hangs", async () => {
+    const events: Emitted[] = [];
+    const commands: Record<string, unknown>[] = [];
+    const worker = {
+      send: () => {},
+      command: (frame: Record<string, unknown>) => { commands.push(frame); return Promise.resolve({}); },
+    } as unknown as OmpWorker;
+    const runtime = new SessionRuntime(
+      "/tmp/session-runtime-test-cwd",
+      undefined,
+      {} as Store,
+      (event: Omit<Envelope, "protocolVersion" | "sessionId" | "eventId" | "sequence">) => {
+        events.push({ type: String(event.type), payload: event.payload });
+      },
+    );
+    runtime.attachWorker(worker);
+    runtime.onWorkerFrame({ type: "extension_ui_request", id: "c1", method: "custom", title: "NOW window" });
+    // debug status still emitted (observability)…
+    expect(events.some((e) => e.type === "status.updated" && String((e.payload as { message?: string }).message).includes("custom"))).toBe(true);
+    // …and the request is answered with a cancelled extension_ui_response
+    // so the extension's await resolves instead of stalling the RPC queue.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(commands).toEqual([{ type: "extension_ui_response", id: "c1", cancelled: true }]);
+  });
+});
