@@ -104,8 +104,8 @@ describe("provider/model CRUD commands", () => {
     expect(providers[0]).toMatchObject({ id: "teststub", hasApiKey: true });
     expect(JSON.stringify(providers)).not.toContain("test-key");
     // On-disk file is valid YAML in omp's schema
-    const onDisk = parse(readFileSync(join(agentDir, "models.yml"), "utf8")) as { providers: Record<string, { apiKey: string }> };
-    expect(onDisk.providers.teststub.apiKey).toBe("test-key");
+    const onDisk = parse(readFileSync(join(agentDir, "models.yml"), "utf8")) as { providers: Record<string, { apiKey?: string }> };
+    expect(onDisk.providers.teststub?.apiKey).toBe("test-key");
   });
 
   it("a second client receives providers.changed on add", async () => {

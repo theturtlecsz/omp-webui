@@ -1,5 +1,5 @@
-# ponytail: web-only gate; daemon tsc + 1 test are red on master — extend to daemon when fixed
 name: ci
+
 on:
   push:
     branches: [master]
@@ -9,12 +9,33 @@ jobs:
   ci:
     name: ci
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/web
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun run test
+      - name: Install root dependencies
+        run: bun install --frozen-lockfile
+      - name: Install @omp/web dependencies
+        working-directory: packages/web
+        run: bun install --frozen-lockfile
+      - name: Install daemon dependencies
+        working-directory: packages/daemon
+        run: bun install --frozen-lockfile
+      - name: Typecheck @omp/web
+        working-directory: packages/web
+        run: bun run typecheck
+      - name: Typecheck daemon
+        working-directory: packages/daemon
+        run: bun run typecheck
+      - name: Unit tests @omp/web
+        working-directory: packages/web
+        run: bun run test
+      - name: Unit tests daemon
+        working-directory: packages/daemon
+        run: bun run test
+      - name: Build @omp/web
+        working-directory: packages/web
+        run: bun run build
+      - name: Install Playwright browsers
+        run: bun x playwright install chromium --with-deps
+      - name: Playwright smoke tests
+        run: bun x playwright test packages/e2e/happy-path.spec.ts packages/e2e/a11y.spec.ts
