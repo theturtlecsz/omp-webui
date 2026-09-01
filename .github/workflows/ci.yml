@@ -1,0 +1,20 @@
+# ponytail: web-only gate; daemon tsc + 1 test are red on master — extend to daemon when fixed
+name: ci
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test
