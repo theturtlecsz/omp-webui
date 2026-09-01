@@ -14,6 +14,38 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: Install omp CLI
         run: bun install -g @oh-my-pi/pi-coding-agent
+      - name: Setup test OMP environment
+        run: |
+          mkdir -p ~/.omp/agent
+          bun scripts/setup-e2e-home.ts
+          cat << 'EOF' > ~/.omp/agent/models.yml
+          providers:
+            teststub:
+              baseUrl: http://127.0.0.1:8788/v1
+              api: openai-completions
+              apiKey: test-key
+              models:
+                - id: stub-1
+                  name: Stub Model 1
+                  contextWindow: 128000
+                  maxTokens: 4096
+                  reasoning: true
+          EOF
+          cat << 'EOF' > ~/.omp/agent/config.yml
+          disabledProviders:
+            - openai
+            - ollama
+            - google-vertex
+            - google
+            - anthropic
+            - zenmux
+            - llama.cpp
+            - lm-studio
+          modelRoles:
+            default: teststub/stub-1
+            smol: teststub/stub-1
+            slow: teststub/stub-1
+          EOF
       - name: Install root dependencies
         run: bun install --frozen-lockfile
       - name: Install @omp/web dependencies
