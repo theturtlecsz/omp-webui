@@ -39,8 +39,8 @@ describe("read/write round-trip", () => {
   test("write is parseable YAML in omp's schema shape", () => {
     writeModelsConfig(dir, upsertProvider(dir, stubProvider));
     const raw = readFileSync(modelsConfigPath(dir), "utf8");
-    const parsed = parse(raw) as { providers: Record<string, { models: { id: string }[] }> };
-    expect(parsed.providers.teststub.models[0].id).toBe("stub-1");
+    const parsed = parse(raw) as { providers: Record<string, { api?: string; baseUrl?: string; models: { id: string }[] }> };
+    expect(parsed.providers.teststub?.models[0]?.id).toBe("stub-1");
     // omp's own file: comments preserved? No — we rewrite. Verify required keys survive.
     expect(parsed.providers.teststub).toMatchObject({ api: "openai-completions", baseUrl: "http://127.0.0.1:8788/v1" });
   });
@@ -80,7 +80,7 @@ describe("upsertProvider", () => {
     // explicit empty string clears
     writeModelsConfig(dir, upsertProvider(dir, { id: "teststub", apiKey: "" }));
     providers = readModelsConfig(dir);
-    expect("apiKey" in providers.teststub).toBe(false);
+    expect(Boolean(providers.teststub && "apiKey" in providers.teststub)).toBe(false);
   });
 });
 
@@ -92,10 +92,10 @@ describe("model add/remove", () => {
   test("upsertModel appends then updates in place", () => {
     writeModelsConfig(dir, upsertModel(dir, "teststub", { id: "stub-2", reasoning: true, input: ["text", "image"] }));
     let providers = readModelsConfig(dir);
-    expect((providers.teststub.models as { id: string }[]).map((m) => m.id)).toEqual(["stub-1", "stub-2"]);
+    expect(((providers.teststub?.models ?? []) as { id: string }[]).map((m) => m.id)).toEqual(["stub-1", "stub-2"]);
     writeModelsConfig(dir, upsertModel(dir, "teststub", { id: "stub-2", name: "Renamed" }));
     providers = readModelsConfig(dir);
-    const models = providers.teststub.models as { id: string; name?: string; reasoning?: boolean }[];
+    const models = (providers.teststub?.models ?? []) as { id: string; name?: string; reasoning?: boolean }[];
     expect(models).toHaveLength(2);
     expect(models[1]).toMatchObject({ id: "stub-2", name: "Renamed", reasoning: true });
   });
@@ -108,7 +108,7 @@ describe("model add/remove", () => {
     writeModelsConfig(dir, upsertModel(dir, "teststub", { id: "stub-2" }));
     writeModelsConfig(dir, removeModel(dir, "teststub", "stub-1")!);
     let providers = readModelsConfig(dir);
-    expect((providers.teststub.models as { id: string }[]).map((m) => m.id)).toEqual(["stub-2"]);
+    expect(((providers.teststub?.models ?? []) as { id: string }[]).map((m) => m.id)).toEqual(["stub-2"]);
     expect(() => removeModel(dir, "teststub", "stub-2")).toThrow(ProviderConfigError);
     expect(removeModel(dir, "teststub", "ghost")).toBeNull();
   });

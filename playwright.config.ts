@@ -1,8 +1,13 @@
 import { defineConfig } from '@playwright/test';
 import { execSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
-const root = '/home/user/workspace/omp-webui';
-const bunPath = '/home/user/.bun/bin';
+const root = process.cwd();
+const bunDir = `${process.env.HOME}/.bun/bin`;
+if (process.env.PATH && !process.env.PATH.includes(bunDir)) {
+  process.env.PATH = `${bunDir}:${process.env.PATH}`;
+}
 
 // Materialize an isolated OMP HOME so globally-installed extensions
 // (e.g. session-system's linear-now.ts) do not inject synthetic messages
@@ -10,10 +15,41 @@ const bunPath = '/home/user/.bun/bin';
 // prompt; extension-injected digests would displace the real user text as
 // the "last user message" and route every reply to the default branch.
 const e2eHome = execSync(
-  `PATH=${bunPath}:$PATH bun ${root}/scripts/setup-e2e-home.ts`,
+  `bun ${root}/scripts/setup-e2e-home.ts`,
   { encoding: 'utf8' },
 ).trim();
-// Expose the isolated OMP home to test workers so filesystem probes
+writeFileSync(
+  join(e2eHome, '.omp', 'agent', 'config.yml'),
+  `disabledProviders:
+  - openai
+  - ollama
+  - google-vertex
+  - google
+  - anthropic
+  - zenmux
+  - llama.cpp
+  - lm-studio
+modelRoles:
+  default: teststub/stub-1
+  smol: teststub/stub-1
+  slow: teststub/stub-1
+`,
+);
+writeFileSync(
+  join(e2eHome, '.omp', 'agent', 'models.yml'),
+  `providers:
+  teststub:
+    baseUrl: http://127.0.0.1:8788/v1
+    api: openai-completions
+    apiKey: test-key
+    models:
+      - id: stub-1
+        name: Stub Model 1
+        contextWindow: 128000
+        maxTokens: 4096
+        reasoning: true
+`,
+);
 // (models.yml, sessions/) look at the same tree the daemon writes to.
 process.env.OMP_E2E_HOME = e2eHome;
 
@@ -40,13 +76,13 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `cd ${root} && PATH=${bunPath}:$PATH bun scripts/stub-llm.ts 8788`,
+      command: `bun ${root}/scripts/stub-llm.ts 8788`,
       url: 'http://127.0.0.1:8788/v1/models',
       reuseExistingServer: true,
       timeout: 30_000,
     },
     {
-      command: `cd ${root} && PATH=${bunPath}:$PATH HOME=${e2eHome} bun packages/daemon/src/index.ts --port 7490 --web-dist packages/web/dist`,
+      command: `HOME=${e2eHome} bun ${root}/packages/daemon/src/index.ts --port 7490 --web-dist packages/web/dist`,
       url: 'http://127.0.0.1:7490/api/health',
       reuseExistingServer: false,
       timeout: 30_000,

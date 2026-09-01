@@ -1,5 +1,5 @@
-# ponytail: web-only gate; daemon tsc + 1 test are red on master — extend to daemon when fixed
 name: ci
+
 on:
   push:
     branches: [master]
@@ -9,12 +9,67 @@ jobs:
   ci:
     name: ci
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/web
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun run test
+      - name: Install omp CLI
+        run: bun install -g @oh-my-pi/pi-coding-agent
+      - name: Setup test OMP environment
+        run: |
+          mkdir -p ~/.omp/agent
+          bun scripts/setup-e2e-home.ts
+          cat << 'EOF' > ~/.omp/agent/models.yml
+          providers:
+            teststub:
+              baseUrl: http://127.0.0.1:8788/v1
+              api: openai-completions
+              apiKey: test-key
+              models:
+                - id: stub-1
+                  name: Stub Model 1
+                  contextWindow: 128000
+                  maxTokens: 4096
+                  reasoning: true
+          EOF
+          cat << 'EOF' > ~/.omp/agent/config.yml
+          disabledProviders:
+            - openai
+            - ollama
+            - google-vertex
+            - google
+            - anthropic
+            - zenmux
+            - llama.cpp
+            - lm-studio
+          modelRoles:
+            default: teststub/stub-1
+            smol: teststub/stub-1
+            slow: teststub/stub-1
+          EOF
+      - name: Install root dependencies
+        run: bun install --frozen-lockfile
+      - name: Install @omp/web dependencies
+        working-directory: packages/web
+        run: bun install --frozen-lockfile
+      - name: Install daemon dependencies
+        working-directory: packages/daemon
+        run: bun install --frozen-lockfile
+      - name: Typecheck @omp/web
+        working-directory: packages/web
+        run: bun run typecheck
+      - name: Typecheck daemon
+        working-directory: packages/daemon
+        run: bun run typecheck
+      - name: Unit tests @omp/web
+        working-directory: packages/web
+        run: bun run test
+      - name: Unit tests daemon
+        working-directory: packages/daemon
+        run: bun run test
+      - name: Build @omp/web
+        working-directory: packages/web
+        run: bun run build
+      - name: Install Playwright browsers
+        run: bun x playwright install chromium --with-deps
+      - name: Playwright smoke tests
+        run: bun x playwright test packages/e2e/happy-path.spec.ts packages/e2e/a11y.spec.ts
