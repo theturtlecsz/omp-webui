@@ -12,6 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      - name: Install omp CLI
+        run: bun install -g @oh-my-pi/pi-coding-agent
       - name: Install root dependencies
         run: bun install --frozen-lockfile
       - name: Install @omp/web dependencies
