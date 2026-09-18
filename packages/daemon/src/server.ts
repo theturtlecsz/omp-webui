@@ -27,6 +27,11 @@ import {
   type ProviderConfigInput,
   type ModelConfigInput,
 } from "./providers.js";
+import { SingleFlightCache, runCollector, killActiveCollectorProcesses } from "./progress/collector.js";
+import { readProviderRuns, SAFE_ID_RE } from "./progress/activity.js";
+import { projectRunDetail, projectSnapshot } from "./progress/project.js";
+import type { ProgressSnapshot } from "./progress/contract.js";
+import { handleControlRequest } from "./progress/control.js";
 
 /** Hard cap on a fully-assembled prompt (message + inlined attachments). */
 const MAX_PROMPT_BYTES = 512 * 1024;
@@ -61,6 +66,8 @@ export interface DaemonOptions {
   approvalMode?: string;
   /** Enables the isolated user-terminal subsystem. Off by default. */
   terminal?: boolean;
+  /** Progress subsystem configuration. */
+  progress?: { bin?: string; manifest?: string; controlBin?: string; controlTimeoutMs?: number; loader?: () => Promise<ProgressSnapshot> };
 }
 
 interface Client {
@@ -93,6 +100,12 @@ export class Daemon {
   #wss: WebSocketServer | null = null;
   #idleTimer: NodeJS.Timeout | null = null;
   #terminals: TerminalManager;
+  #progressBin: string;
+  #progressManifest: string;
+  #controlBin: string;
+  #controlTimeoutMs: number;
+  #progressCache: SingleFlightCache<ProgressSnapshot>;
+  #controlInFlight = false;
 
   constructor(opts: DaemonOptions = {}) {
     const host = opts.host ?? "127.0.0.1";
@@ -100,6 +113,14 @@ export class Daemon {
     if (!isLoopback && !opts.authToken) {
       throw new Error("refusing to bind non-loopback without an authToken (SECURITY.md)");
     }
+    const defaultProgressBin = resolve(homedir(), ".local/bin/omp-progress");
+    const defaultProgressManifest = resolve(homedir(), ".local/state/omp-progress/activity.json");
+    const defaultControlBin = resolve(homedir(), ".local/bin/omp-execution-control");
+    const progressBin = opts.progress?.bin ? resolve(opts.progress.bin) : defaultProgressBin;
+    const progressManifest = opts.progress?.manifest ? resolve(opts.progress.manifest) : defaultProgressManifest;
+    const controlBin = opts.progress?.controlBin ? resolve(opts.progress.controlBin) : defaultControlBin;
+    const controlTimeoutMs = opts.progress?.controlTimeoutMs ?? 30_000;
+
     this.opts = {
       host,
       port: opts.port ?? 0,
@@ -112,9 +133,29 @@ export class Daemon {
       approvalMode: opts.approvalMode ?? "write",
       terminal: opts.terminal ?? false,
       dbPath: opts.dbPath ?? "",
+      progress: {
+        bin: progressBin,
+        manifest: progressManifest,
+        controlBin,
+        controlTimeoutMs,
+      },
     };
     this.store = new Store(opts.dbPath);
     this.#terminals = new TerminalManager({ enabled: opts.terminal === true });
+
+    this.#progressBin = progressBin;
+    this.#progressManifest = progressManifest;
+    this.#controlBin = controlBin;
+    this.#controlTimeoutMs = controlTimeoutMs;
+    const progressLoader = opts.progress?.loader ?? (async () => {
+      const [collectorResult, activityResult, controlResult] = await Promise.all([
+        runCollector(this.#progressBin),
+        readProviderRuns(this.#progressManifest, Date.now()),
+        runCollector(this.#controlBin, 8000, 64 * 1024, ["inspect", "--json"]),
+      ]);
+      return projectSnapshot(collectorResult, activityResult, controlResult, Date.now());
+    });
+    this.#progressCache = new SingleFlightCache(4000, progressLoader);
   }
 
   get port(): number {
@@ -139,6 +180,8 @@ export class Daemon {
   async stop(): Promise<void> {
     if (this.#idleTimer) clearInterval(this.#idleTimer);
     this.#terminals.stop();
+    killActiveCollectorProcesses();
+    this.#progressCache.clear();
     for (const rt of this.#runtimes.values()) {
       if (rt.worker) await rt.worker.stop().catch(() => {});
       rt.dispose();
@@ -167,6 +210,22 @@ export class Daemon {
       res.end(JSON.stringify({ ok: true, version: DAEMON_VERSION, protocolVersion: PROTOCOL_VERSION, pid: process.pid }));
       return;
     }
+    if (url.pathname === "/api/progress") {
+      this.#serveProgress(req, res);
+      return;
+    }
+    if (url.pathname === "/api/progress/control/pause") {
+      this.#serveControl(req, res, "pause");
+      return;
+    }
+    if (url.pathname === "/api/progress/control/stop") {
+      this.#serveControl(req, res, "stop");
+      return;
+    }
+    if (url.pathname.startsWith("/api/progress/runs/")) {
+      this.#serveRunDetail(req, res, url.pathname.slice("/api/progress/runs/".length));
+      return;
+    }
     if (url.pathname === "/api/artifact") {
       this.#serveArtifact(url, res);
       return;
@@ -180,15 +239,133 @@ export class Daemon {
     res.end(JSON.stringify({ error: "not found" }));
   }
 
+  /** Shared method + origin guard for the read-only progress endpoints. False = response already sent. */
+  #progressGuard(req: IncomingMessage, res: ServerResponse, allowed: string[]): boolean {
+    const method = (req.method ?? "GET").toUpperCase();
+    if (!allowed.includes(method)) {
+      res.writeHead(405, { allow: allowed.join(", "), "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "method not allowed" }));
+      return false;
+    }
+    const origin = req.headers.origin;
+    const secFetchSite = req.headers["sec-fetch-site"];
+    if (secFetchSite === "cross-site" || origin === "null" || (origin && !this.#originAllowed(origin))) {
+      res.writeHead(403, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "origin not allowed" }));
+      return false;
+    }
+    return true;
+  }
+
+  async #serveRunDetail(req: IncomingMessage, res: ServerResponse, rawId: string): Promise<void> {
+    if (!this.#progressGuard(req, res, ["GET"])) return;
+    res.setHeader("cache-control", "no-store");
+    res.setHeader("vary", "origin");
+    res.setHeader("content-type", "application/json");
+
+    let id: string;
+    try { id = decodeURIComponent(rawId); } catch { id = ""; }
+    if (!SAFE_ID_RE.test(id)) {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: "invalid run id" }));
+      return;
+    }
+    // Cache only: never triggers a collector run beyond the snapshot's own TTL,
+    // never reads receipts or browser paths.
+    let snapshot: ProgressSnapshot;
+    try {
+      snapshot = await this.#progressCache.get();
+    } catch {
+      res.writeHead(503, { "retry-after": "5" });
+      res.end(JSON.stringify({ error: "snapshot-unavailable" }));
+      return;
+    }
+    const detail = projectRunDetail(snapshot, id);
+    if (!detail) {
+      res.writeHead(404);
+      res.end(JSON.stringify({ error: "run not found" }));
+      return;
+    }
+    res.writeHead(200);
+    res.end(JSON.stringify(detail));
+  }
+
+  async #serveProgress(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!this.#progressGuard(req, res, ["GET", "HEAD"])) return;
+    const method = (req.method ?? "GET").toUpperCase();
+
+    res.setHeader("cache-control", "no-store");
+    res.setHeader("vary", "origin");
+    res.setHeader("content-type", "application/json");
+
+    if (method === "HEAD") {
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+
+    try {
+      const snapshot = await this.#progressCache.get();
+      res.writeHead(200);
+      res.end(JSON.stringify(snapshot));
+    } catch (err: unknown) {
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end(JSON.stringify({
+        error: "projection-error",
+        errorClass: "projection-error",
+        message: err instanceof Error ? err.message : "internal error",
+      }));
+    }
+  }
+
+  async #serveControl(req: IncomingMessage, res: ServerResponse, verb: "pause" | "stop"): Promise<void> {
+    if (this.#controlInFlight) {
+      res.writeHead(429, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: false, code: "busy", error: "control operation in flight" }));
+      return;
+    }
+    this.#controlInFlight = true;
+    try {
+      if (!this.#progressGuard(req, res, ["POST"])) return;
+      await handleControlRequest({
+        req,
+        res,
+        verb,
+        controlBin: this.#controlBin,
+        timeoutMs: this.#controlTimeoutMs,
+        clearCache: () => this.#progressCache.clear(),
+      });
+    } finally {
+      this.#controlInFlight = false;
+    }
+  }
+
+  #cookieToken(req: IncomingMessage): string {
+    for (const part of (req.headers.cookie ?? "").split(";")) {
+      const eq = part.indexOf("=");
+      if (eq <= 0 || part.slice(0, eq).trim() !== "omp_webui_token") continue;
+      try {
+        return decodeURIComponent(part.slice(eq + 1).trim());
+      } catch {
+        return "";
+      }
+    }
+    return "";
+  }
+
   #checkAuth(req: IncomingMessage, res: ServerResponse): boolean {
     if (!this.opts.authToken) return true;
     const header = req.headers.authorization ?? "";
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-    const token = header.replace(/^Bearer\s+/i, "") || url.searchParams.get("token") || "";
+    const queryToken = url.searchParams.get("token") ?? "";
+    const token = header.replace(/^Bearer\s+/i, "") || queryToken || this.#cookieToken(req);
     if (token !== this.opts.authToken) {
       res.writeHead(401, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "unauthorized" }));
       return false;
+    }
+    if (queryToken === this.opts.authToken) {
+      res.setHeader("Set-Cookie", `omp_webui_token=${encodeURIComponent(queryToken)}; HttpOnly; SameSite=Strict; Path=/`);
     }
     return true;
   }
@@ -253,7 +430,7 @@ export class Daemon {
     }
     if (this.opts.authToken) {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-      const token = url.searchParams.get("token") ?? "";
+      const token = url.searchParams.get("token") || this.#cookieToken(req);
       if (token !== this.opts.authToken) {
         ws.close(4401, "unauthorized");
         return;
@@ -271,7 +448,8 @@ export class Daemon {
   }
 
   #originAllowed(origin: string): boolean {
-    // Loopback origins are always allowed; --origin entries are ADDITIONAL.
+    // Only loopback origins or explicit allowedOrigins pass.
+    // Host header matching is intentionally NOT trusted to prevent DNS-rebinding attacks.
     try {
       const u = new URL(origin);
       if (u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "::1") return true;

@@ -37,6 +37,13 @@ const daemon = new Daemon({
   allowedOrigins: Array.isArray(args.origin) ? args.origin : undefined,
   approvalMode: typeof args["approval-mode"] === "string" ? args["approval-mode"] : undefined,
   terminal: args.terminal === true,
+  progress: (typeof args["progress-bin"] === "string" || typeof args["progress-manifest"] === "string" || typeof args["control-bin"] === "string")
+    ? {
+        bin: typeof args["progress-bin"] === "string" ? args["progress-bin"] : undefined,
+        manifest: typeof args["progress-manifest"] === "string" ? args["progress-manifest"] : undefined,
+        controlBin: typeof args["control-bin"] === "string" ? args["control-bin"] : undefined,
+      }
+    : undefined,
 });
 
 await daemon.start();

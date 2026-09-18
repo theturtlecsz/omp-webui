@@ -12,15 +12,18 @@
 
 ## Network
 - Default bind `127.0.0.1`. `--host` outside loopback REQUIRES `--token` (daemon refuses
-  to start otherwise) and should be fronted by TLS (see OPERATIONS.md).
-- WS origin allowlist: loopback origins are ALWAYS allowed; `--origin` (repeatable) adds more.
+  to start otherwise) and should be fronted by TLS (see OPERATIONS.md). A valid query token
+  establishes an HttpOnly, SameSite=Strict browser-session cookie for follow-up HTTP and WS requests.
+- WS and HTTP origins must be loopback (`127.0.0.1`, `localhost`, `::1`) or explicit `--origin` entries.
+  Implicit trust of matching Host headers is removed to prevent DNS-rebinding attacks where a hostile
+  site's Origin matches Host on loopback.
 - Session/artifact filesystem access: session files must canonically live inside a
   REGISTERED workspace's omp session dir; artifact dir+target realpath-resolved, symlink
   escapes rejected (403). Foreign session paths are never read, opened, or forked.
 - Protocol version enforced: mismatched protocolVersion → connection.error (protocol_version).
 - Worker input bounds: chunk count/concurrency/aggregate-bytes/TTL + raw-line cap;
   malformed frames dropped, never fatal to the daemon.
-- No wildcard origins. HTTP API requires the same token when configured.
+- No wildcard origins. HTTP API requires the configured token or its session cookie.
 
 ## Workspace policy
 - `workspace.open` registers an explicit root; canonicalized with `realpath`.
@@ -57,6 +60,20 @@
 - Terminal ownership is pinned to the creating browser client. The daemon streams no retained
   scrollback, limits client input to 64 KiB/frame and terminal output to about 1 MiB/s
   (dropping excess with a notice), and kills PTYs on owner disconnect and daemon stop.
+
+### Progress execution control
+- `/api/progress/control/pause` and `/api/progress/control/stop` expose authoritative execution-state
+  operations without browser capability exposure.
+- Strict request validation: method must be `POST`, origin and `sec-fetch-site` checked via
+  `#progressGuard`, custom header `x-omp-webui-control: 1` required (forces CORS preflight), content
+  type must be `application/json`, body size capped at 4 KiB, stop reason bounded to 200 characters.
+- Invocations are serialized by the daemon with an instance-owned single-flight concurrency lock
+  acquired atomically before body reads (rejecting overlapping requests with HTTP 429 `busy`).
+- Spawns configured absolute `omp-execution-control` binary with an explicit argv array (no shell).
+- The browser receives and provides only public non-secret data (an 8-hex `grantRef` fence and grant
+  version); credentials, bearer tokens, judge hashes, full grant IDs, and raw diagnostics are never
+  exposed to or accepted from the browser. Unvalidated or failed projections return 503 `control-unavailable`,
+  timestamps are strictly normalized, and error codes are whitelisted without echoing CLI internals.
 
 ## Credentials
 - The daemon never reads or forwards API keys. omp resolves them itself

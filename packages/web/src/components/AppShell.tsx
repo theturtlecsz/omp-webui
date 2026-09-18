@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Menu, MessageSquareText, PanelRightOpen, Plus, Settings, SquareTerminal, X } from 'lucide-react';
+import { Activity, Menu, MessageSquareText, PanelRightOpen, Plus, Settings, SquareTerminal, X } from 'lucide-react';
 import type { SessionSummary } from '../../../daemon/src/protocol';
+import { ProgressPanel } from './ProgressPanel';
 import { daemonClient, daemonHealthUrl } from '../lib/client';
 import { useAppStore } from '../lib/store';
 import { Sidebar } from './Sidebar';
@@ -32,6 +33,7 @@ import { useSoundTriggers } from '../lib/sound-triggers';
 import { useAttachmentSettings } from '../lib/settings';
 
 type FilePreview = { path: string; content: string; truncated?: boolean; binary?: boolean; lineCount?: number };
+
 
 function readSavedWorkspace(): { root: string } | undefined {
   try {
@@ -107,7 +109,7 @@ function AppShellBody({ t, settingsOpen, setSettingsOpen }: { t: (key: string) =
   const [attachmentSettings] = useAttachmentSettings();
   const [daemonVersion, setDaemonVersion] = useState('');
   const [announcement, setAnnouncement] = useState('');
-  const [surface, setSurface] = useState<'chat' | 'terminal'>('chat');
+  const [surface, setSurface] = useState<'chat' | 'terminal' | 'progress'>('chat');
   const [palette, setPalette] = useState<{ open: boolean; query: string }>({ open: false, query: '' });
   const drawerTrigger = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
@@ -302,6 +304,10 @@ function AppShellBody({ t, settingsOpen, setSettingsOpen }: { t: (key: string) =
     setTab(next);
     document.getElementById(`workspace-tab-${next}`)?.focus();
   };
+  // Context usage arrives as a raw float (e.g. 11.436718749999999); show one decimal at most.
+  const rawContextPercent = state.sessionState.contextUsage?.percent;
+  const contextPercent = rawContextPercent === undefined ? undefined : Math.round(rawContextPercent * 10) / 10;
+
 
   return (
     <div className={`app-shell ${sidebar ? 'sidebar-open' : ''} ${drawer ? 'drawer-open' : ''}`}>
@@ -328,6 +334,7 @@ function AppShellBody({ t, settingsOpen, setSettingsOpen }: { t: (key: string) =
           <div className="surface-toggle" role="group" aria-label="Main view">
             <button className={surface === 'chat' ? 'is-active' : ''} aria-pressed={surface === 'chat'} onClick={() => setSurface('chat')}><MessageSquareText size={15} />Chat</button>
             <button className={surface === 'terminal' ? 'is-active' : ''} aria-pressed={surface === 'terminal'} onClick={() => setSurface('terminal')}><SquareTerminal size={16} />Terminal</button>
+            <button className={surface === 'progress' ? 'is-active' : ''} aria-pressed={surface === 'progress'} onClick={() => setSurface('progress')}><Activity size={16} />Progress</button>
           </div>
           <button className="icon-button" aria-label={t('settings.open')} title={t('settings.open')} onClick={() => setSettingsOpen(true)}><Settings size={17} /></button>
           <button ref={drawerTrigger} className="icon-button" aria-label="Toggle workspace drawer" aria-expanded={drawer} onClick={() => setDrawer((open) => !open)}><PanelRightOpen size={19} /></button>
@@ -335,6 +342,7 @@ function AppShellBody({ t, settingsOpen, setSettingsOpen }: { t: (key: string) =
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
         <div className="main-surface">
           <TerminalPane workspaceId={state.activeWorkspaceId} workspaceRoot={workspace?.root} client={daemonClient} visible={surface === 'terminal'} />
+          {surface === 'progress' && <ProgressPanel enabled={surface === 'progress'} />}
           <div id="conversation" className={`conversation ${surface === 'chat' ? '' : 'is-hidden'}`}>
           <ExtensionStatusPills statuses={state.sessionState.extensionStatus ?? {}} />
           <ExtensionWidget widget={state.sessionState.extensionUI} />
@@ -364,7 +372,7 @@ function AppShellBody({ t, settingsOpen, setSettingsOpen }: { t: (key: string) =
             queuedPrompts={state.queuedPrompts}
             model={model}
             thinkingLevel={state.sessionState.thinkingLevel}
-            contextPercent={state.sessionState.contextUsage?.percent}
+            contextPercent={contextPercent}
             client={daemonClient}
             onDraft={setDraft}
             attachments={attachments}
@@ -379,7 +387,7 @@ function AppShellBody({ t, settingsOpen, setSettingsOpen }: { t: (key: string) =
           worker={state.sessionState.workerState}
           model={model?.id}
           thinking={state.sessionState.thinkingLevel}
-          context={state.sessionState.contextUsage?.percent}
+          context={contextPercent}
           tokensPerSecond={state.sessionState.tokensPerSecond}
           version={daemonVersion}
         />
