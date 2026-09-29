@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 
 const focusableSelector = 'button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
+// Enter on a focused action button (Deny, Allow, Cancel) runs that button, not the dialog's confirm.
+// List choices (role="option") keep Enter = submit the highlighted choice.
+const isActionButton = (target: EventTarget | null) =>
+  target instanceof HTMLButtonElement && target.getAttribute('role') !== 'option';
+
 export function useFocusTrap(ref: React.RefObject<HTMLDivElement | null>, onCancel: () => void, onConfirm?: () => void) {
   const onCancelRef = useRef(onCancel);
   const onConfirmRef = useRef(onConfirm);
@@ -20,7 +25,7 @@ export function useFocusTrap(ref: React.RefObject<HTMLDivElement | null>, onCanc
         event.stopPropagation();
         onCancelRef.current();
       }
-      if (event.key === 'Enter' && onConfirmRef.current && !(event.target instanceof HTMLTextAreaElement)) {
+      if (event.key === 'Enter' && onConfirmRef.current && !(event.target instanceof HTMLTextAreaElement) && !isActionButton(event.target)) {
         event.preventDefault();
         onConfirmRef.current();
       }
