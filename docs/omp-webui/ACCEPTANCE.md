@@ -1,5 +1,7 @@
 # Acceptance Matrix — Definition of Done Evidence
 
+> **Status (OMP-398, owner decision D10, 2026-09-28):** every ✅ row below is source delivered, not installed-qualified, until installed checks pass. The 2026-09-28 audit (finding E0239) did not find the evidence named in rows T-150 (`terminal.test.ts`, `terminal-auth.test.ts`), T-160 (`workspace.memory` handler) and T-170 (version in `connection.ready`) in the tracked tree.
+
 Status legend: ✅ verified with automated evidence · 🟡 implemented, evidence pending · ⬜ open
 Evidence commands assume: `bun scripts/stub-llm.ts 8788` running (test-only provider).
 All rows verified by the orchestrator on 2026-08-10 AFTER the independent review's
