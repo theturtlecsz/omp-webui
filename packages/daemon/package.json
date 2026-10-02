@@ -12,6 +12,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@oh-my-pi/pi-work-client": "link:@oh-my-pi/pi-work-client",
     "ws": "^8.21.3",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"

@@ -15,6 +15,8 @@ import { WorkspaceBoundary, PathEscapeError, readWorkspaceFile, searchWorkspaceF
 import { listSessionFiles, readSessionEntries, sessionDirForCwd } from "./session-files.js";
 import { PROTOCOL_VERSION, type ClientCommand, type Envelope } from "./protocol.js";
 import { TerminalManager } from "./terminal-manager.js";
+import { handleOversight } from "./oversight.js";
+import type { WorkClient } from "@oh-my-pi/pi-work-client";
 import {
   agentDirFromEnv,
   listProviders,
@@ -48,6 +50,8 @@ type PromptAttachment = { path?: unknown; name?: unknown; data?: unknown; start?
 type PromptImage = { data?: unknown; mimeType?: unknown };
 
 export interface DaemonOptions {
+  /** Work Ledger client principal for /api/oversight (OMP-492); routes answer 503 when unset. */
+  oversightClient?: WorkClient;
   host?: string;
   port?: number;
   authToken?: string; // required when host is not loopback
@@ -85,7 +89,7 @@ const MIME: Record<string, string> = {
 
 export class Daemon {
   readonly store: Store;
-  readonly opts: Required<Omit<DaemonOptions, "authToken" | "allowedOrigins" | "webDistDir">> & Pick<DaemonOptions, "authToken" | "allowedOrigins" | "webDistDir">;
+  readonly opts: Required<Omit<DaemonOptions, "authToken" | "allowedOrigins" | "webDistDir" | "oversightClient">> & Pick<DaemonOptions, "authToken" | "allowedOrigins" | "webDistDir" | "oversightClient">;
   #clients = new Set<Client>();
   #runtimes = new Map<string, SessionRuntime>(); // sessionFile -> runtime
   #boundaries = new Map<string, WorkspaceBoundary>(); // workspaceId -> boundary
@@ -106,6 +110,7 @@ export class Daemon {
       authToken: opts.authToken,
       allowedOrigins: opts.allowedOrigins,
       webDistDir: opts.webDistDir,
+      oversightClient: opts.oversightClient,
       ompBin: opts.ompBin ?? "omp",
       workerEnv: opts.workerEnv ?? {},
       workerIdleMs: opts.workerIdleMs ?? 10 * 60 * 1000,
@@ -165,6 +170,14 @@ export class Daemon {
     if (url.pathname === "/api/health") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true, version: DAEMON_VERSION, protocolVersion: PROTOCOL_VERSION, pid: process.pid }));
+      return;
+    }
+    if (url.pathname.startsWith("/api/oversight")) {
+      void handleOversight(this.opts.oversightClient, req, res, url.pathname).then((handled) => {
+        if (handled) return;
+        res.writeHead(405, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "method not allowed" }));
+      });
       return;
     }
     if (url.pathname === "/api/artifact") {
