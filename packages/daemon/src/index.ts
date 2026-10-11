@@ -3,6 +3,7 @@
  *   bun packages/daemon/src/index.ts [--host 127.0.0.1] [--port 7483] [--token ...] [--web-dist ../web/dist]
  */
 import { Daemon } from "./server.js";
+import { oversightClientFromEnv } from "./oversight.js";
 
 function parseArgs(argv: string[]): Record<string, string | boolean | string[]> {
   const out: Record<string, string | boolean | string[]> = {};
@@ -37,6 +38,7 @@ const daemon = new Daemon({
   allowedOrigins: Array.isArray(args.origin) ? args.origin : undefined,
   approvalMode: typeof args["approval-mode"] === "string" ? args["approval-mode"] : undefined,
   terminal: args.terminal === true,
+  oversightClient: oversightClientFromEnv(),
 });
 
 await daemon.start();

@@ -51,6 +51,15 @@ jobs:
       - name: Install @omp/web dependencies
         working-directory: packages/web
         run: bun install --frozen-lockfile
+      - name: Link @oh-my-pi/pi-work-client (daemon dependency, not on npm)
+        env:
+          OMP_SHA: 3f332d3bbd2a809ea1f1832a8f3da5a7c3f1a255
+        run: |
+          d="$RUNNER_TEMP/oh-my-pi"
+          git init -q "$d" && git -C "$d" remote add origin https://github.com/theturtlecsz/oh-my-pi.git
+          git -C "$d" sparse-checkout set packages/work-client
+          git -C "$d" fetch -q --depth 1 origin "$OMP_SHA" && git -C "$d" checkout -q FETCH_HEAD
+          cd "$d/packages/work-client" && bun link
       - name: Install daemon dependencies
         working-directory: packages/daemon
         run: bun install --frozen-lockfile

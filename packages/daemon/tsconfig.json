@@ -14,6 +14,7 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
+    "paths": { "@oh-my-pi/pi-work-client": ["./src/work-client.d.ts"] },
 
     // Best practices
     "strict": true,
